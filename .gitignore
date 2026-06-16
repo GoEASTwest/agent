@@ -1,0 +1,35 @@
+# Archives and packaged handoff files
+*.zip
+*.rar
+*.7z
+
+# Java / Maven
+target/
+*.class
+
+# Node / Vue
+node_modules/
+dist/
+.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime logs
+*.log
+backend-run*.log
+frontend-run*.log
+tmp/
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Local secrets and machine-specific config
+.env
+.env.*
+application-local.yml
+application-prod.yml

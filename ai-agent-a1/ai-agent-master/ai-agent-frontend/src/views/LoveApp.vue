@@ -1,0 +1,1448 @@
+<template>
+  <main class="workspace">
+    <aside class="sidebar">
+      <router-link to="/" class="back">← A1 项目首页</router-link>
+      <h1>设备检修中台</h1>
+      <p>知识检索、故障诊断、图片特征、作业单和报告归档集中在一个流程里。</p>
+
+      <nav>
+        <button
+          v-for="tab in tabs"
+          :key="tab.key"
+          :class="{ active: activeTab === tab.key }"
+          @click="activeTab = tab.key"
+        >
+          <span>{{ tab.index }}</span>{{ tab.label }}
+        </button>
+      </nav>
+    </aside>
+
+    <section class="content">
+      <header class="topbar">
+        <div>
+          <small>{{ backendOnline ? '后端接口在线' : '演示数据模式' }}</small>
+          <h2>{{ currentTitle }}</h2>
+        </div>
+        <button class="ghost-button" @click="loadAll">刷新数据</button>
+      </header>
+
+      <section v-if="activeTab === 'dashboard'" class="dashboard">
+        <div class="delivery-strip">
+          <article v-for="item in completionItems.slice(0, 4)" :key="item.module">
+            <span>{{ item.status }}</span>
+            <strong>{{ item.module }}</strong>
+            <div class="progress"><i :style="{ width: item.percent + '%' }"></i></div>
+            <small>{{ item.percent }}% · {{ item.result }}</small>
+          </article>
+        </div>
+
+        <div class="metric-grid">
+          <article v-for="metric in metrics" :key="metric.label" class="metric-card">
+            <span>{{ metric.label }}</span>
+            <strong>{{ metric.value }}</strong>
+            <p>{{ metric.desc }}</p>
+          </article>
+        </div>
+
+        <div class="two-column">
+          <article class="panel">
+            <h3>风险分布</h3>
+            <div class="risk-row" v-for="risk in riskRows" :key="risk.name">
+              <span>{{ risk.name }}</span>
+              <div class="bar"><i :style="{ width: risk.width }"></i></div>
+              <strong>{{ risk.count }}</strong>
+            </div>
+          </article>
+
+          <article class="panel">
+            <h3>最近作业单</h3>
+            <div v-for="task in tasks.slice(0, 4)" :key="task.id" class="task-mini">
+              <strong>{{ task.title }}</strong>
+              <span>{{ task.priority }} · {{ task.status }}</span>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section v-if="activeTab === 'devices'" class="cards-grid">
+        <article v-for="device in devices" :key="device.id" class="device-card">
+          <div class="card-head">
+            <span>{{ device.type }}</span>
+            <strong :class="['risk', riskClass(device.riskLevel)]">{{ device.riskLevel }}</strong>
+          </div>
+          <h3>{{ device.name }}</h3>
+          <p>{{ device.location }}</p>
+          <div class="chips">
+            <i v-for="sensor in device.sensors" :key="sensor">{{ sensor }}</i>
+          </div>
+          <small>最近巡检：{{ device.lastInspectionTime }}</small>
+        </article>
+      </section>
+
+      <section v-if="activeTab === 'roles'" class="management-grid">
+        <article v-for="role in roles" :key="role.id" class="management-card">
+          <div class="card-head">
+            <span>{{ role.id }}</span>
+            <strong>{{ role.name }}</strong>
+          </div>
+          <p>{{ role.scene }}</p>
+          <div class="chips">
+            <i v-for="permission in role.permissions" :key="permission">{{ permission }}</i>
+          </div>
+        </article>
+      </section>
+
+      <section v-if="activeTab === 'modules'" class="management-grid">
+        <article v-for="module in modules" :key="module.id" class="management-card">
+          <div class="card-head">
+            <span>{{ module.status }}</span>
+            <strong>{{ module.maturity }}%</strong>
+          </div>
+          <h3>{{ module.name }}</h3>
+          <p>负责人角色：{{ module.ownerRole }}</p>
+          <div class="progress"><i :style="{ width: module.maturity + '%' }"></i></div>
+          <strong>功能</strong>
+          <div class="chips">
+            <i v-for="item in module.functions" :key="item">{{ item }}</i>
+          </div>
+          <strong>依赖</strong>
+          <p>{{ module.dependencies.join(' / ') }}</p>
+        </article>
+      </section>
+
+      <section v-if="activeTab === 'cases'" class="cases">
+        <article v-for="item in cases" :key="item.id" class="case-card">
+          <div>
+            <span>{{ item.deviceType }}</span>
+            <h3>{{ item.faultName }}</h3>
+            <p>{{ item.cause }}</p>
+          </div>
+          <div class="case-detail">
+            <strong>症状</strong>
+            <p>{{ item.symptoms.join(' / ') }}</p>
+            <strong>图像特征</strong>
+            <p>{{ item.imageFeatures.join(' / ') }}</p>
+          </div>
+        </article>
+      </section>
+
+      <section v-if="activeTab === 'diagnose'" class="diagnose">
+        <form class="diagnose-form" @submit.prevent="runDiagnosis">
+          <label>
+            设备
+            <select v-model="inspection.deviceId">
+              <option v-for="device in devices" :key="device.id" :value="device.id">
+                {{ device.name }}
+              </option>
+            </select>
+          </label>
+          <label>
+            类型
+            <select v-model="inspection.deviceType">
+              <option>风机</option>
+              <option>泵</option>
+              <option>电机</option>
+              <option>齿轮箱</option>
+            </select>
+          </label>
+          <label>
+            温度 ℃
+            <input v-model.number="inspection.temperature" type="number" min="0" />
+          </label>
+          <label>
+            振动 RMS mm/s
+            <input v-model.number="inspection.vibration" type="number" step="0.1" min="0" />
+          </label>
+          <label>
+            电流 A
+            <input v-model.number="inspection.current" type="number" min="0" />
+          </label>
+          <label class="wide">
+            现场描述
+            <textarea v-model="inspection.description"></textarea>
+          </label>
+          <label class="wide">
+            图片可见特征
+            <div class="feature-picker">
+              <button
+                v-for="feature in featureOptions"
+                :key="feature"
+                type="button"
+                :class="{ selected: inspection.imageFeatures.includes(feature) }"
+                @click="toggleFeature(feature)"
+              >
+                {{ feature }}
+              </button>
+            </div>
+          </label>
+          <button class="primary-button" type="submit">生成诊断与作业单</button>
+        </form>
+
+        <article v-if="diagnosis" class="diagnosis-result">
+          <div class="result-head">
+            <span>风险等级</span>
+            <strong :class="['risk', riskClass(diagnosis.riskLevel)]">{{ diagnosis.riskLevel }}</strong>
+            <em>{{ diagnosis.score }} 分</em>
+          </div>
+          <h3>证据链</h3>
+          <ul>
+            <li v-for="item in diagnosis.evidence" :key="item">{{ item }}</li>
+          </ul>
+          <h3>可能原因</h3>
+          <ul>
+            <li v-for="item in diagnosis.possibleCauses" :key="item">{{ item }}</li>
+          </ul>
+          <h3>作业建议</h3>
+          <ul>
+            <li v-for="item in diagnosis.recommendedActions" :key="item">{{ item }}</li>
+          </ul>
+          <button class="ghost-button" @click="downloadReport">导出报告</button>
+        </article>
+      </section>
+
+      <section v-if="activeTab === 'image'" class="diagnose">
+        <form class="diagnose-form" @submit.prevent="runImageAnalysis">
+          <label>
+            设备类型
+            <select v-model="imageForm.deviceType">
+              <option>风机</option>
+              <option>泵</option>
+              <option>电机</option>
+              <option>齿轮箱</option>
+            </select>
+          </label>
+          <label>
+            文件名
+            <input v-model="imageForm.fileName" placeholder="motor-terminal-burn.jpg" />
+          </label>
+          <label class="wide">
+            图片描述
+            <textarea v-model="imageForm.visualDescription" placeholder="描述图片中看到的焦痕、漏油、锈蚀、裂纹等特征"></textarea>
+          </label>
+          <label class="wide">
+            Qwen 视觉图片 URL
+            <input v-model="visionForm.imageUrl" placeholder="https://example.com/fault-image.jpg" />
+          </label>
+          <label class="wide">
+            视觉问题
+            <textarea v-model="visionForm.question" placeholder="请判断可见缺陷、风险等级和检修建议"></textarea>
+          </label>
+          <button class="primary-button" type="submit">分析图片特征</button>
+          <button class="ghost-button" type="button" @click="runVisionAnalysis">调用 Qwen 视觉分析</button>
+        </form>
+
+        <article v-if="imageAnalysis" class="diagnosis-result">
+          <div class="result-head">
+            <span>图片分析</span>
+            <strong>{{ imageAnalysis.fileName }}</strong>
+          </div>
+          <h3>识别特征</h3>
+          <div class="chips">
+            <i v-for="feature in imageAnalysis.detectedFeatures" :key="feature">{{ feature }}</i>
+          </div>
+          <h3>相似案例</h3>
+          <ul>
+            <li v-for="item in imageAnalysis.similarCases" :key="item.id">
+              {{ item.faultName }}：{{ item.solution }}
+            </li>
+          </ul>
+          <h3>采集建议</h3>
+          <ul>
+            <li v-for="tip in imageAnalysis.inspectionTips" :key="tip">{{ tip }}</li>
+          </ul>
+        </article>
+
+        <article v-if="visionAnalysis" class="diagnosis-result">
+          <div class="result-head">
+            <span>{{ visionAnalysis.provider }}</span>
+            <strong>{{ visionAnalysis.model }}</strong>
+          </div>
+          <h3>视觉结论</h3>
+          <p>{{ visionAnalysis.conclusion }}</p>
+          <h3>识别特征</h3>
+          <div class="chips">
+            <i v-for="feature in visionAnalysis.detectedFeatures" :key="feature">{{ feature }}</i>
+          </div>
+          <h3>建议动作</h3>
+          <ul>
+            <li v-for="action in visionAnalysis.recommendedActions" :key="action">{{ action }}</li>
+          </ul>
+        </article>
+      </section>
+
+      <section v-if="activeTab === 'tasks'" class="tasks">
+        <article v-for="task in tasks" :key="task.id" class="task-card">
+          <div class="card-head">
+            <span>{{ task.id }}</span>
+            <strong>{{ task.priority }} · {{ task.status }}</strong>
+          </div>
+          <h3>{{ task.title }}</h3>
+          <p>设备编号：{{ task.deviceId }}</p>
+          <div class="task-columns">
+            <div>
+              <strong>步骤</strong>
+              <ol>
+                <li v-for="step in task.steps" :key="step">{{ step }}</li>
+              </ol>
+            </div>
+            <div>
+              <strong>备件工具</strong>
+              <p>{{ task.spareParts.join(' / ') }}</p>
+              <strong>验收</strong>
+              <p>{{ task.acceptanceCriteria.join(' / ') }}</p>
+            </div>
+          </div>
+          <div class="task-actions">
+            <button
+              v-for="flow in taskFlows"
+              :key="flow.status"
+              @click="updateTaskFlow(task.id, flow)"
+            >
+              {{ flow.status }}
+            </button>
+          </div>
+        </article>
+      </section>
+
+      <section v-if="activeTab === 'workflow'" class="workflow">
+        <article class="panel">
+          <h3>作业状态机</h3>
+          <div class="flow-line">
+            <span v-for="status in workflowStatuses" :key="status">{{ status }}</span>
+          </div>
+        </article>
+        <article class="task-card" v-for="event in taskFlowEvents" :key="event.taskId + event.operatedAt">
+          <div class="card-head">
+            <span>{{ event.operatorRole }}</span>
+            <strong>{{ event.fromStatus }} → {{ event.toStatus }}</strong>
+          </div>
+          <h3>{{ event.taskId }}</h3>
+          <p>{{ event.note }}</p>
+          <small>{{ formatTime(event.operatedAt) }}</small>
+        </article>
+      </section>
+
+      <section v-if="activeTab === 'completion'" class="completion-list">
+        <article v-for="item in completionItems" :key="item.module" class="completion-card">
+          <div class="card-head">
+            <span>{{ item.status }}</span>
+            <strong>{{ item.percent }}%</strong>
+          </div>
+          <h3>{{ item.module }}</h3>
+          <div class="progress"><i :style="{ width: item.percent + '%' }"></i></div>
+          <p>{{ item.result }}</p>
+          <small>下一步：{{ item.nextStep }}</small>
+        </article>
+      </section>
+
+      <section v-if="activeTab === 'knowledge'" class="knowledge-grid">
+        <article v-for="doc in knowledgeDocs" :key="doc" class="knowledge-card">
+          <span>RAG Document</span>
+          <h3>{{ doc.split(' - ')[0] }}</h3>
+          <p>{{ doc.split(' - ')[1] || '设备检修知识文档' }}</p>
+        </article>
+      </section>
+
+      <section v-if="activeTab === 'reports'" class="reports">
+        <article v-if="!reports.length" class="empty-state">
+          <h3>暂无已归档报告</h3>
+          <p>在“多模态诊断”里生成诊断结果并点击导出报告后，这里会沉淀报告记录。</p>
+        </article>
+        <article v-for="report in reports" :key="report.reportId" class="report-card">
+          <div class="card-head">
+            <span>{{ report.reportId }}</span>
+            <strong :class="['risk', riskClass(report.riskLevel)]">{{ report.riskLevel }}</strong>
+          </div>
+          <h3>{{ report.title }}</h3>
+          <p>{{ formatTime(report.generatedAt) }}</p>
+          <div class="chips">
+            <i v-for="section in report.sections" :key="section">{{ section }}</i>
+          </div>
+          <button class="ghost-button" @click="downloadMarkdown(report)">下载报告</button>
+        </article>
+      </section>
+
+      <section v-if="activeTab === 'chat'" class="chat-layout">
+        <div class="chat-history" ref="chatHistory">
+          <div class="message ai">
+            <div class="bubble">我是检修知识助手，可以结合当前案例库和作业单，帮你生成诊断说明或答辩演示话术。</div>
+          </div>
+          <div v-for="(msg, index) in messages" :key="index" :class="['message', msg.role]">
+            <div class="bubble">{{ msg.content }}</div>
+          </div>
+        </div>
+        <form class="chat-input" @submit.prevent="sendMessage">
+          <input v-model="inputMessage" placeholder="输入检修问题，例如：把刚才的诊断整理成答辩讲解" />
+          <button type="submit" :disabled="isStreaming">{{ isStreaming ? '生成中' : '发送' }}</button>
+        </form>
+      </section>
+    </section>
+  </main>
+</template>
+
+<script>
+const API_BASE = 'http://localhost:8123/api';
+
+const fallbackDevices = [
+  {
+    id: 'DEV-FAN-01',
+    name: '一号引风机',
+    type: '风机',
+    location: '锅炉房 A 区',
+    status: '运行',
+    riskLevel: '关注',
+    sensors: ['振动', '温度', '电流', '噪声'],
+    lastInspectionTime: '2026-06-10 09:20'
+  },
+  {
+    id: 'DEV-PUMP-02',
+    name: '循环水泵二号',
+    type: '泵',
+    location: '动力站 B 区',
+    status: '运行',
+    riskLevel: '预警',
+    sensors: ['入口压力', '出口压力', '振动', '温度'],
+    lastInspectionTime: '2026-06-10 15:42'
+  },
+  {
+    id: 'DEV-MOTOR-03',
+    name: '输送线主电机',
+    type: '电机',
+    location: '产线 3 号位',
+    status: '待检修',
+    riskLevel: '严重',
+    sensors: ['电流', '绝缘电阻', '温度', '外观图片'],
+    lastInspectionTime: '2026-06-11 08:10'
+  }
+];
+
+const fallbackCases = [
+  {
+    id: 'CASE-001',
+    deviceType: '风机',
+    faultName: '轴承早期磨损',
+    symptoms: ['温度升高', '周期性异响', '振动增大'],
+    imageFeatures: ['油污', '轴承座发热', '轻微磨痕'],
+    cause: '润滑不足或轴承游隙异常导致滚动体局部磨损',
+    solution: '补充润滑，采集频谱，检查轴承游隙，必要时计划停机更换',
+    severity: 3
+  },
+  {
+    id: 'CASE-002',
+    deviceType: '泵',
+    faultName: '汽蚀与入口堵塞',
+    symptoms: ['压力波动', '流量下降', '泵体振动'],
+    imageFeatures: ['入口滤网污堵', '管路锈蚀', '密封处漏液'],
+    cause: '入口阻力过大或液位不足导致汽蚀',
+    solution: '检查入口阀门、滤网和液位，排气后复测振动与压力',
+    severity: 4
+  },
+  {
+    id: 'CASE-003',
+    deviceType: '电机',
+    faultName: '绕组过热与绝缘下降',
+    symptoms: ['外壳高温', '电流异常', '焦味'],
+    imageFeatures: ['焦痕', '变色', '绝缘破损'],
+    cause: '长期过载、散热不良或绝缘老化引起绕组局部过热',
+    solution: '立即停机断电，测绝缘电阻，检查接线端子和散热通道',
+    severity: 5
+  }
+];
+
+export default {
+  name: 'LoveApp',
+  data() {
+    return {
+      tabs: [
+        { key: 'dashboard', label: '态势看板', index: '01' },
+        { key: 'devices', label: '设备台账', index: '02' },
+        { key: 'roles', label: '角色权限', index: '03' },
+        { key: 'modules', label: '模块管理', index: '04' },
+        { key: 'cases', label: '案例知识库', index: '05' },
+        { key: 'diagnose', label: '多模态诊断', index: '06' },
+        { key: 'image', label: '视觉分析', index: '07' },
+        { key: 'tasks', label: '检修作业单', index: '08' },
+        { key: 'workflow', label: '作业流转', index: '09' },
+        { key: 'knowledge', label: '知识库', index: '10' },
+        { key: 'completion', label: '交付总览', index: '11' },
+        { key: 'reports', label: '报告中心', index: '12' },
+        { key: 'chat', label: 'AI 知识问答', index: '13' }
+      ],
+      activeTab: 'dashboard',
+      backendOnline: false,
+      dashboard: null,
+      devices: fallbackDevices,
+      roles: [],
+      modules: [],
+      cases: fallbackCases,
+      tasks: [],
+      taskFlowEvents: [],
+      knowledgeDocs: [
+        'paper1.md - 正常运行状态诊断知识',
+        'paper2.md - 早期故障诊断知识',
+        'paper3.md - 严重故障诊断知识',
+        'maintenance_workflow.md - 检修作业闭环知识'
+      ],
+      completionItems: [
+        { module: '前端工作台', status: '已实现', percent: 95, result: '核心页面可演示', nextStep: '补充录屏素材' },
+        { module: '检修业务后端', status: '已实现', percent: 90, result: '业务接口可调用', nextStep: '接入数据库' },
+        { module: '大模型问答', status: '已实现', percent: 85, result: 'Qwen 接入可用', nextStep: '增加调用审计' },
+        { module: '工程部署', status: '演示可用', percent: 65, result: '本地已跑通', nextStep: '整理部署文档' }
+      ],
+      reports: [],
+      diagnosis: null,
+      imageAnalysis: null,
+      inspection: {
+        deviceId: 'DEV-MOTOR-03',
+        deviceType: '电机',
+        description: '电机外壳温度高，有焦味，巡检照片可见接线端子焦痕。',
+        temperature: 92,
+        vibration: 5.6,
+        current: 128,
+        imageFeatures: ['焦痕', '变色']
+      },
+      imageForm: {
+        deviceType: '电机',
+        fileName: 'motor-terminal-burn.jpg',
+        visualDescription: '图片中电机接线端子附近有焦痕和变色，绝缘层疑似破损。'
+      },
+      visionForm: {
+        deviceType: '电机',
+        imageUrl: '',
+        question: '请判断图片中可见缺陷、风险等级和检修建议'
+      },
+      visionAnalysis: null,
+      featureOptions: ['油污', '锈蚀', '焦痕', '裂纹', '磨损', '漏液', '变色', '金属屑', '绝缘破损'],
+      taskFlows: [
+        { status: '待派工', operatorRole: 'admin', note: '管理员确认派工' },
+        { status: '处理中', operatorRole: 'maintainer', note: '检修员接单处理' },
+        { status: '待验收', operatorRole: 'maintainer', note: '检修完成，提交验收' },
+        { status: '专家复核', operatorRole: 'expert', note: '专家复核 AI 诊断和检修记录' },
+        { status: '已归档', operatorRole: 'expert', note: '验收通过并归档复盘' }
+      ],
+      workflowStatuses: ['待处理', '待派工', '处理中', '待验收', '专家复核', '已归档'],
+      messages: [],
+      inputMessage: '',
+      chatId: '',
+      eventSource: null,
+      isStreaming: false
+    };
+  },
+  computed: {
+    currentTitle() {
+      return this.tabs.find((tab) => tab.key === this.activeTab)?.label || '检修工作台';
+    },
+    metrics() {
+      const summary = this.dashboard || this.localDashboard();
+      return [
+        { label: '设备数', value: summary.deviceCount, desc: '纳入台账和巡检链路' },
+        { label: '异常设备', value: summary.warningCount, desc: '关注、预警、严重状态' },
+        { label: '待处理作业', value: summary.openTaskCount, desc: '诊断自动生成或人工创建' },
+        { label: '知识案例', value: summary.knowledgeCount, desc: '故障案例与检修经验' }
+      ];
+    },
+    riskRows() {
+      const dist = (this.dashboard || this.localDashboard()).riskDistribution;
+      const max = Math.max(...Object.values(dist), 1);
+      return Object.entries(dist).map(([name, count]) => ({
+        name,
+        count,
+        width: `${(count / max) * 100}%`
+      }));
+    }
+  },
+  mounted() {
+    this.chatId = 'a1_' + Date.now();
+    this.loadAll();
+  },
+  methods: {
+    async loadAll() {
+      try {
+        const [dashboard, devices, roles, modules, cases, tasks, flows, completion, reports] = await Promise.all([
+          this.fetchJson('/maintenance/dashboard'),
+          this.fetchJson('/maintenance/devices'),
+          this.fetchJson('/maintenance/roles'),
+          this.fetchJson('/maintenance/modules'),
+          this.fetchJson('/maintenance/cases'),
+          this.fetchJson('/maintenance/tasks'),
+          this.fetchJson('/maintenance/tasks/flow'),
+          this.fetchJson('/maintenance/completion'),
+          this.fetchJson('/maintenance/reports')
+        ]);
+        const knowledgeDocs = await this.fetchJson('/maintenance/knowledge');
+        this.dashboard = dashboard;
+        this.devices = devices;
+        this.roles = roles;
+        this.modules = modules;
+        this.cases = cases;
+        this.tasks = tasks;
+        this.taskFlowEvents = flows;
+        this.knowledgeDocs = knowledgeDocs;
+        this.completionItems = completion;
+        this.reports = reports;
+        this.backendOnline = true;
+      } catch (error) {
+        this.backendOnline = false;
+        this.dashboard = this.localDashboard();
+        this.devices = fallbackDevices;
+        this.cases = fallbackCases;
+        this.tasks = this.tasks.length ? this.tasks : [this.mockTask()];
+      }
+    },
+    async fetchJson(path, options = {}) {
+      const response = await fetch(`${API_BASE}${path}`, {
+        headers: { 'Content-Type': 'application/json' },
+        ...options
+      });
+      if (!response.ok) {
+        throw new Error(`request failed: ${path}`);
+      }
+      return response.json();
+    },
+    localDashboard() {
+      const riskDistribution = { 正常: 0, 关注: 0, 预警: 0, 严重: 0 };
+      this.devices.forEach((device) => {
+        riskDistribution[device.riskLevel] = (riskDistribution[device.riskLevel] || 0) + 1;
+      });
+      return {
+        deviceCount: this.devices.length,
+        warningCount: this.devices.filter((device) => device.riskLevel !== '正常').length,
+        openTaskCount: this.tasks.length || 1,
+        knowledgeCount: this.cases.length,
+        riskDistribution,
+        recentTasks: this.tasks
+      };
+    },
+    toggleFeature(feature) {
+      const features = this.inspection.imageFeatures;
+      const index = features.indexOf(feature);
+      if (index >= 0) {
+        features.splice(index, 1);
+      } else {
+        features.push(feature);
+      }
+    },
+    async runDiagnosis() {
+      try {
+        this.diagnosis = await this.fetchJson('/maintenance/diagnose', {
+          method: 'POST',
+          body: JSON.stringify(this.inspection)
+        });
+        this.tasks.unshift(this.diagnosis.generatedTask);
+        this.backendOnline = true;
+      } catch (error) {
+        this.backendOnline = false;
+        this.diagnosis = this.localDiagnosis();
+        this.tasks.unshift(this.diagnosis.generatedTask);
+      }
+      this.activeTab = 'diagnose';
+    },
+    async runImageAnalysis() {
+      try {
+        this.imageAnalysis = await this.fetchJson('/maintenance/image/analyze', {
+          method: 'POST',
+          body: JSON.stringify(this.imageForm)
+        });
+        this.backendOnline = true;
+      } catch (error) {
+        this.backendOnline = false;
+        this.imageAnalysis = this.localImageAnalysis();
+      }
+    },
+    async runVisionAnalysis() {
+      try {
+        this.visionAnalysis = await this.fetchJson('/maintenance/vision/analyze', {
+          method: 'POST',
+          body: JSON.stringify({
+            ...this.visionForm,
+            deviceType: this.imageForm.deviceType,
+            visualDescription: this.imageForm.visualDescription
+          })
+        });
+        this.backendOnline = true;
+      } catch (error) {
+        this.backendOnline = false;
+        this.visionAnalysis = {
+          provider: 'local-rule',
+          model: 'feature-keyword-matcher',
+          detectedFeatures: this.localImageAnalysis().detectedFeatures,
+          conclusion: '视觉模型暂不可用，已使用本地图片特征规则兜底。',
+          similarCases: this.localImageAnalysis().similarCases,
+          recommendedActions: this.localImageAnalysis().inspectionTips
+        };
+      }
+    },
+    localImageAnalysis() {
+      const description = this.imageForm.visualDescription;
+      const features = this.featureOptions.filter((feature) => description.includes(feature));
+      if (!features.length && description.includes('焦')) features.push('焦痕');
+      if (!features.length && description.includes('锈')) features.push('锈蚀');
+      if (!features.length) features.push('待人工复核');
+      const similarCases = this.cases.filter((item) => item.deviceType === this.imageForm.deviceType).slice(0, 2);
+      return {
+        fileName: this.imageForm.fileName,
+        detectedFeatures: features,
+        similarCases,
+        inspectionTips: [
+          '补拍设备铭牌、故障部位近景和周边环境远景',
+          '将图片特征同步写入诊断输入，结合温度、振动、电流复判',
+          similarCases[0]?.solution || '未匹配到高置信案例，建议专家复核'
+        ]
+      };
+    },
+    async updateTaskStatus(taskId, status) {
+      try {
+        const updatedTask = await this.fetchJson(`/maintenance/tasks/${taskId}/status`, {
+          method: 'POST',
+          body: JSON.stringify({ status })
+        });
+        this.tasks = this.tasks.map((task) => task.id === taskId ? updatedTask : task);
+        this.backendOnline = true;
+      } catch (error) {
+        this.backendOnline = false;
+        this.tasks = this.tasks.map((task) => task.id === taskId ? { ...task, status } : task);
+      }
+    },
+    async updateTaskFlow(taskId, flow) {
+      try {
+        const updatedTask = await this.fetchJson(`/maintenance/tasks/${taskId}/flow`, {
+          method: 'POST',
+          body: JSON.stringify(flow)
+        });
+        this.tasks = this.tasks.map((task) => task.id === taskId ? updatedTask : task);
+        this.taskFlowEvents = await this.fetchJson('/maintenance/tasks/flow');
+        this.backendOnline = true;
+      } catch (error) {
+        this.backendOnline = false;
+        this.tasks = this.tasks.map((task) => task.id === taskId ? { ...task, status: flow.status } : task);
+      }
+    },
+    localDiagnosis() {
+      const score = Math.min(100,
+        (this.inspection.temperature >= 85 ? 35 : 18)
+        + (this.inspection.vibration >= 7.1 ? 35 : 18)
+        + (this.inspection.current >= 120 ? 20 : 0)
+        + this.inspection.imageFeatures.length * 8
+      );
+      const riskLevel = score >= 75 ? '严重' : score >= 50 ? '预警' : score >= 25 ? '关注' : '正常';
+      const matchedCases = this.cases.filter((item) => item.deviceType === this.inspection.deviceType).slice(0, 2);
+      return {
+        riskLevel,
+        score,
+        evidence: [
+          `温度 ${this.inspection.temperature}℃，振动 ${this.inspection.vibration}mm/s，电流 ${this.inspection.current}A`,
+          `图片特征：${this.inspection.imageFeatures.join('、') || '暂无'}`,
+          `现场描述：${this.inspection.description}`
+        ],
+        possibleCauses: matchedCases.map((item) => `${item.faultName}：${item.cause}`),
+        recommendedActions: [
+          '执行断电、挂牌上锁和个人防护',
+          '复测温度、振动、电流并保存趋势',
+          matchedCases[0]?.solution || '补充检测信息后复判',
+          '生成作业单并归档图片证据'
+        ],
+        similarCases: matchedCases,
+        generatedTask: this.mockTask(riskLevel)
+      };
+    },
+    mockTask(riskLevel = '严重') {
+      return {
+        id: `TASK-DEMO-${Date.now().toString().slice(-4)}`,
+        deviceId: this.inspection.deviceId,
+        title: `${riskLevel}风险检修作业单`,
+        priority: riskLevel === '严重' ? 'P1' : 'P2',
+        status: '待派工',
+        steps: ['断电挂牌上锁', '复测异常参数', '检查外观图片特征对应部位', '处理故障点', '试运行验收'],
+        spareParts: ['红外测温仪', '振动采集仪', '绝缘手套', '挂牌锁具'],
+        acceptanceCriteria: ['异常参数回落', '无异常噪声和焦味', '图片和报告归档'],
+        createdAt: new Date().toISOString()
+      };
+    },
+    async downloadReport() {
+      if (!this.diagnosis) return;
+      let markdown = '';
+      try {
+        const report = await this.fetchJson('/maintenance/reports', {
+          method: 'POST',
+          body: JSON.stringify(this.diagnosis)
+        });
+        markdown = report.markdown;
+        this.reports = [report, ...this.reports.filter((item) => item.reportId !== report.reportId)];
+        this.backendOnline = true;
+      } catch (error) {
+        this.backendOnline = false;
+      }
+      const lines = [
+        '# 设备检修诊断报告',
+        '',
+        `风险等级：${this.diagnosis.riskLevel}`,
+        `评分：${this.diagnosis.score}`,
+        '',
+        '## 证据链',
+        ...this.diagnosis.evidence.map((item) => `- ${item}`),
+        '',
+        '## 可能原因',
+        ...this.diagnosis.possibleCauses.map((item) => `- ${item}`),
+        '',
+        '## 作业建议',
+        ...this.diagnosis.recommendedActions.map((item) => `- ${item}`)
+      ];
+      const blob = new Blob([markdown || lines.join('\n')], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'maintenance-report.md';
+      link.click();
+      URL.revokeObjectURL(url);
+    },
+    downloadMarkdown(report) {
+      const blob = new Blob([report.markdown], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${report.reportId}.md`;
+      link.click();
+      URL.revokeObjectURL(url);
+    },
+    formatTime(value) {
+      if (!value) return '刚刚生成';
+      return String(value).replace('T', ' ').slice(0, 19);
+    },
+    riskClass(risk) {
+      return {
+        正常: 'risk-ok',
+        关注: 'risk-watch',
+        预警: 'risk-warn',
+        严重: 'risk-danger'
+      }[risk] || 'risk-watch';
+    },
+    sendMessage() {
+      if (!this.inputMessage.trim() || this.isStreaming) return;
+      const message = this.inputMessage.trim();
+      this.messages.push({ role: 'user', content: message });
+      this.inputMessage = '';
+      this.connectSSE(message);
+    },
+    connectSSE(message) {
+      if (this.eventSource) {
+        this.eventSource.close();
+      }
+      const url = `${API_BASE}/ai/app/chat/sse?message=${encodeURIComponent(message)}&chatId=${this.chatId}`;
+      this.eventSource = new EventSource(url);
+      this.isStreaming = true;
+      const aiMessageIndex = this.messages.push({ role: 'ai', content: '' }) - 1;
+
+      this.eventSource.onmessage = (event) => {
+        const data = event.data;
+        if (data === '[DONE]') {
+          this.eventSource.close();
+          this.isStreaming = false;
+        } else {
+          this.messages[aiMessageIndex].content += data;
+        }
+      };
+
+      this.eventSource.onerror = () => {
+        this.messages[aiMessageIndex].content += '后端 AI 服务未启动，当前可继续使用诊断、案例和作业单演示模块。';
+        this.eventSource.close();
+        this.isStreaming = false;
+      };
+    }
+  },
+  beforeUnmount() {
+    if (this.eventSource) {
+      this.eventSource.close();
+    }
+  }
+};
+</script>
+
+<style scoped>
+.workspace {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  background: #eef3ef;
+  color: #15241e;
+}
+
+.sidebar {
+  background: #10231d;
+  color: #f6fbf8;
+  padding: 28px;
+}
+
+.back {
+  color: #8dd8af;
+  text-decoration: none;
+  font-weight: 800;
+}
+
+.sidebar h1 {
+  margin: 28px 0 12px;
+  font-size: 34px;
+}
+
+.sidebar p {
+  color: #c9d8d0;
+  line-height: 1.7;
+}
+
+nav {
+  display: grid;
+  gap: 10px;
+  margin-top: 28px;
+}
+
+nav button {
+  min-height: 48px;
+  border: 1px solid rgba(246, 251, 248, 0.14);
+  border-radius: 6px;
+  background: rgba(246, 251, 248, 0.06);
+  color: #f6fbf8;
+  text-align: left;
+  padding: 0 14px;
+  cursor: pointer;
+}
+
+nav button span {
+  color: #e6b85c;
+  margin-right: 10px;
+  font-weight: 800;
+}
+
+nav button.active {
+  background: #8dd8af;
+  color: #10231d;
+}
+
+.content {
+  padding: 24px;
+  overflow: auto;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.topbar small {
+  color: #2b7c5a;
+  font-weight: 800;
+}
+
+.topbar h2 {
+  margin: 6px 0 0;
+  font-size: 30px;
+}
+
+.ghost-button,
+.primary-button,
+.chat-input button {
+  min-height: 42px;
+  border-radius: 6px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.ghost-button {
+  border: 1px solid #c7d4ce;
+  background: #ffffff;
+  color: #15241e;
+  padding: 0 16px;
+}
+
+.primary-button {
+  border: 0;
+  background: #15241e;
+  color: #ffffff;
+  padding: 0 18px;
+}
+
+.metric-grid,
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.delivery-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.delivery-strip article,
+.completion-card,
+.report-card,
+.empty-state {
+  border: 1px solid #d4dfd9;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 12px 34px rgba(16, 35, 29, 0.08);
+  padding: 18px;
+}
+
+.delivery-strip span,
+.completion-card span,
+.report-card span {
+  color: #2b7c5a;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.delivery-strip strong {
+  display: block;
+  margin: 8px 0 10px;
+}
+
+.delivery-strip small,
+.completion-card small {
+  display: block;
+  color: #66766e;
+  line-height: 1.5;
+}
+
+.progress {
+  height: 8px;
+  border-radius: 99px;
+  background: #e5ece8;
+  overflow: hidden;
+  margin: 10px 0;
+}
+
+.progress i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #2b7c5a, #e6b85c);
+}
+
+.metric-card,
+.panel,
+.device-card,
+.case-card,
+.knowledge-card,
+.diagnosis-result,
+.task-card,
+.diagnose-form,
+.chat-layout {
+  border: 1px solid #d4dfd9;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 12px 34px rgba(16, 35, 29, 0.08);
+}
+
+.metric-card {
+  padding: 20px;
+}
+
+.metric-card span {
+  color: #66766e;
+}
+
+.metric-card strong {
+  display: block;
+  margin: 12px 0 6px;
+  font-size: 34px;
+}
+
+.metric-card p,
+.device-card p,
+.case-card p,
+.task-card p {
+  color: #66766e;
+  line-height: 1.6;
+}
+
+.two-column {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.panel {
+  padding: 20px;
+}
+
+.risk-row {
+  display: grid;
+  grid-template-columns: 60px 1fr 32px;
+  align-items: center;
+  gap: 12px;
+  margin: 13px 0;
+}
+
+.bar {
+  height: 9px;
+  border-radius: 99px;
+  background: #e5ece8;
+  overflow: hidden;
+}
+
+.bar i {
+  display: block;
+  height: 100%;
+  background: #2b7c5a;
+}
+
+.task-mini {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid #e4ece7;
+  padding: 13px 0;
+}
+
+.cards-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.device-card,
+.case-card,
+.task-card {
+  padding: 20px;
+}
+
+.card-head,
+.result-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.chips i,
+.risk,
+.case-card span {
+  border-radius: 99px;
+  padding: 5px 9px;
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.chips i {
+  background: #edf3ef;
+}
+
+.risk-ok { background: #dff6e9; color: #146a3d; }
+.risk-watch { background: #fff3c7; color: #7a5610; }
+.risk-warn { background: #ffe0c2; color: #8a3d00; }
+.risk-danger { background: #ffd8d8; color: #9f1d1d; }
+
+.cases {
+  display: grid;
+  gap: 14px;
+}
+
+.case-card {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+.case-card span {
+  background: #edf3ef;
+}
+
+.case-detail {
+  border-left: 1px solid #e4ece7;
+  padding-left: 20px;
+}
+
+.diagnose {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(320px, 0.7fr);
+  gap: 14px;
+}
+
+.diagnose-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  padding: 20px;
+}
+
+label {
+  display: grid;
+  gap: 7px;
+  font-weight: 800;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  border: 1px solid #cbd8d1;
+  border-radius: 6px;
+  padding: 11px;
+  font: inherit;
+}
+
+textarea {
+  min-height: 104px;
+  resize: vertical;
+}
+
+.wide {
+  grid-column: 1 / -1;
+}
+
+.feature-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.feature-picker button {
+  border: 1px solid #cbd8d1;
+  border-radius: 99px;
+  background: #ffffff;
+  padding: 8px 11px;
+  cursor: pointer;
+}
+
+.feature-picker button.selected {
+  border-color: #2b7c5a;
+  background: #dff6e9;
+}
+
+.diagnosis-result {
+  padding: 20px;
+}
+
+.result-head {
+  justify-content: flex-start;
+}
+
+.result-head em {
+  margin-left: auto;
+  font-style: normal;
+  font-size: 24px;
+  font-weight: 900;
+}
+
+li {
+  margin: 7px 0;
+  line-height: 1.6;
+}
+
+.tasks {
+  display: grid;
+  gap: 14px;
+}
+
+.management-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.management-card {
+  border: 1px solid #d4dfd9;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 12px 34px rgba(16, 35, 29, 0.08);
+  padding: 20px;
+}
+
+.management-card h3 {
+  margin: 12px 0 8px;
+}
+
+.management-card p {
+  color: #66766e;
+  line-height: 1.7;
+}
+
+.workflow {
+  display: grid;
+  gap: 14px;
+}
+
+.flow-line {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.flow-line span {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: #edf3ef;
+  color: #15241e;
+  font-weight: 800;
+}
+
+.completion-list,
+.reports {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.completion-card h3,
+.report-card h3,
+.empty-state h3 {
+  margin: 12px 0 10px;
+}
+
+.completion-card p,
+.report-card p,
+.empty-state p {
+  color: #66766e;
+  line-height: 1.7;
+}
+
+.empty-state {
+  grid-column: 1 / -1;
+}
+
+.knowledge-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.knowledge-card {
+  padding: 20px;
+}
+
+.knowledge-card span {
+  color: #2b7c5a;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.knowledge-card p {
+  color: #66766e;
+  line-height: 1.7;
+}
+
+.task-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px;
+  border-top: 1px solid #e4ece7;
+  margin-top: 16px;
+  padding-top: 16px;
+}
+
+.task-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-top: 1px solid #e4ece7;
+  margin-top: 16px;
+  padding-top: 14px;
+}
+
+.task-actions button {
+  min-height: 34px;
+  border: 1px solid #cbd8d1;
+  border-radius: 6px;
+  background: #f8fbf9;
+  cursor: pointer;
+}
+
+.chat-layout {
+  height: calc(100vh - 132px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.chat-history {
+  flex: 1;
+  overflow: auto;
+  padding: 20px;
+}
+
+.message {
+  display: flex;
+  margin: 10px 0;
+}
+
+.message.user {
+  justify-content: flex-end;
+}
+
+.bubble {
+  max-width: 760px;
+  border: 1px solid #d9e3dd;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.message.user .bubble {
+  background: #15241e;
+  color: #ffffff;
+}
+
+.chat-input {
+  display: grid;
+  grid-template-columns: 1fr 96px;
+  gap: 10px;
+  border-top: 1px solid #d4dfd9;
+  padding: 14px;
+}
+
+.chat-input button {
+  border: 0;
+  background: #2b7c5a;
+  color: #ffffff;
+}
+
+@media (max-width: 1100px) {
+  .workspace,
+  .diagnose,
+  .two-column {
+    grid-template-columns: 1fr;
+  }
+
+  .metric-grid,
+  .cards-grid,
+  .management-grid,
+  .delivery-strip,
+  .completion-list,
+  .reports {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .metric-grid,
+  .cards-grid,
+  .management-grid,
+  .delivery-strip,
+  .completion-list,
+  .reports,
+  .knowledge-grid,
+  .case-card,
+  .diagnose-form,
+  .task-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .flow-line {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
