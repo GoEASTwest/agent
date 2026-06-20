@@ -4,6 +4,65 @@
 
 这是一个基于Spring AI和Vue.js构建的智能旋转机械故障诊断系统，专门用于风机、泵、轴承、齿轮箱、电机等旋转设备的故障诊断和预测性维护。系统集成了先进的AI技术、RAG（检索增强生成）知识库、向量数据库和多种诊断工具，为工业设备维护提供智能化的解决方案。
 
+## 当前分支二次开发说明
+
+当前 `Li` 分支在原项目基础上做了面向软件杯 A1 场景的二次开发，重点不是只保留原来的通用故障诊断对话，而是扩展成一个可演示的“设备检修知识检索与作业闭环系统”。主要改动如下：
+
+### 1. 业务场景扩展
+
+- 将项目主题调整为“多模态设备检修知识检索与作业系统”。
+- 新增检修工作台页面 `/love-app`，覆盖设备看板、台账、角色、模块、案例、诊断、图片分析、作业单、作业流转、完成度、知识库和报告归档。
+- 后端新增/完善检修演示数据和接口，支持前端在没有数据库的情况下完成演示闭环。
+
+### 2. Qwen / DashScope 调用方式调整
+
+- 新增 `DashScopeCompatibleChatClient`，普通 AI 问答改为通过 DashScope OpenAI 兼容模式调用。
+- 新增 `DashScopeCompatibleToolAgent`，工具智能体也改为兼容模式 function calling，规避部分模型在 Spring AI Alibaba 原生工具调用中的不稳定问题。
+- 支持通过环境变量配置：
+  - `DASHSCOPE_API_KEY`
+  - `DASHSCOPE_CHAT_MODEL`
+  - `DASHSCOPE_BASE_URL`
+- 默认兼容模式 Base URL 为 `https://dashscope.aliyuncs.com/compatible-mode/v1`。
+
+### 3. 工具智能体增强
+
+- `/manus` 页面从原来的普通工具对话升级为检修资料处理智能体。
+- 支持生成 Markdown 检修规程、生成 PDF、读取/列出已保存文件、抓取公开网页、下载公开资源。
+- `SEARCH_API_KEY` 为可选配置，未配置时可跳过联网搜索能力。
+- 出于安全考虑，当前兼容模式工具智能体未开放终端命令执行。
+- 后端 SSE 增加 `[DONE]` 结束标记，避免浏览器把正常结束误判为连接异常。
+- 工具执行过程会输出结构化事件，前端可展示“分析任务、工具执行中、执行完成/失败、生成最终回答”等步骤。
+
+### 4. 文件中心和下载能力
+
+- 新增后端文件列表接口：
+  - `GET /api/ai/manus/files`
+- 新增后端文件下载接口：
+  - `GET /api/ai/manus/files/download?type=file|pdf|download&name=文件名`
+- 新增前端页面 `/files`，集中展示工具智能体生成的 Markdown、PDF 和下载资源。
+- 文件中心支持按类型筛选、下载文件、复制下载链接。
+
+### 5. Markdown 和 PDF 展示优化
+
+- 前端新增 `MarkdownMessage.vue`，使用 `marked` + `dompurify` 渲染 AI 返回内容，避免直接显示 Markdown 源码。
+- 检修工作台 AI 问答和工具智能体回答都已接入 Markdown 渲染。
+- 新增 `PdfFontProvider`，并调整 PDF 生成逻辑，解决中文 PDF 字体和乱码问题。
+
+### 6. 本地运行稳定性优化
+
+- 新增 `.env.example`，方便配置 DashScope、数据库、搜索等环境变量。
+- 优化 `scripts/start-backend.ps1`，支持加载 `.env`、检查 Java 21、默认关闭 PgVector/MCP 自动连接。
+- 优化 `scripts/start-frontend.ps1`，自动检查依赖并启动 Vite。
+- 调整 `vite.config.js` 和统一前端 `src/api.js`，解决本地开发时 `/api` 代理到后端的问题。
+- 默认演示模式使用内存数据，不强制依赖 PostgreSQL、PgVector 或 MCP，便于比赛现场稳定启动。
+
+### 7. 与原项目保留关系
+
+- 原有 Spring Boot、Vue 3、Spring AI、RAG、工具类、MCP 搜索器等结构仍保留。
+- PostgreSQL + PgVector 配置仍保留，后续可按需要重新打开。
+- 原有通用工具类仍存在，但当前演示主链路优先使用 DashScope 兼容模式的聊天和工具智能体。
+- 真实 API Key 不写入代码，生成文件保存在 `tmp/` 目录，默认不提交到 Git。
+
 
 ## 🏗️ 技术架构
 
@@ -108,27 +167,25 @@
 
 ### 环境要求
 - Java 21+
-- Node.js 16+
-- PostgreSQL 12+
-- Maven 3.6+
+- Node.js 18+
+- Maven Wrapper，已随项目提供
+- DashScope/Qwen API Key
+- PostgreSQL + PgVector，仅在启用持久化向量库时需要
 
 ### 后端启动
-```bash
-# 1. 配置数据库
-# 修改 src/main/resources/application.yml 中的数据库连接信息
+```powershell
+# 1. 配置 AI API 密钥，也可以复制 .env.example 为 .env 后填写
+$env:DASHSCOPE_API_KEY="your-dashscope-api-key"
 
-# 2. 配置AI API密钥
-# 设置环境变量 api-key 为您的DashScope API密钥
-
-# 3. 启动应用
-mvn spring-boot:run
+# 2. 启动应用
+.\scripts\start-backend.ps1
 ```
 
+默认演示模式使用内存业务数据，并关闭 PostgreSQL + PgVector 与 MCP 自动连接。若需要启用数据库，请设置 `DB_URL`、`DB_USERNAME`、`DB_PASSWORD`，并打开 `app.vectorstore.pgvector.enabled`。
+
 ### 前端启动
-```bash
-cd ai-agent-frontend
-npm install
-npm run dev
+```powershell
+.\scripts\start-frontend.ps1
 ```
 
 ### MCP搜索器启动
@@ -159,7 +216,7 @@ spring:
     url: jdbc:postgresql://localhost:5432/ai_agent
   ai:
     dashscope:
-      api-key: ${api-key}
+      api-key: ${DASHSCOPE_API_KEY:${api_key:}}
     chat:
       options:
         model: qwq-plus

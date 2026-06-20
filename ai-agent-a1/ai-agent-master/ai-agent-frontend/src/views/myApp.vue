@@ -14,6 +14,8 @@
 </template>
 
 <script>
+import { apiUrl } from '../api';
+
 export default {
   name: 'LoveApp',
   data() {
@@ -37,7 +39,7 @@ export default {
       this.scrollToBottom();
     },
     connectSSE(message) {
-      const url = `http://localhost:8123/api/ai/love_app/chat/sse?message=${encodeURIComponent(message)}&chatId=${this.chatId}`;
+      const url = apiUrl(`/ai/app/chat/sse?message=${encodeURIComponent(message)}&chatId=${this.chatId}`);
       this.eventSource = new EventSource(url);
 
       let aiMessageIndex = this.messages.push({ role: 'ai', content: '' }) - 1;

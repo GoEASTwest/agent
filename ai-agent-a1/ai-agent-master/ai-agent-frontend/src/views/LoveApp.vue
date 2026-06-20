@@ -368,7 +368,10 @@
             <div class="bubble">我是检修知识助手，可以结合当前案例库和作业单，帮你生成诊断说明或答辩演示话术。</div>
           </div>
           <div v-for="(msg, index) in messages" :key="index" :class="['message', msg.role]">
-            <div class="bubble">{{ msg.content }}</div>
+            <div class="bubble">
+              <MarkdownMessage v-if="msg.role === 'ai'" :content="msg.content" />
+              <span v-else>{{ msg.content }}</span>
+            </div>
           </div>
         </div>
         <form class="chat-input" @submit.prevent="sendMessage">
@@ -381,7 +384,8 @@
 </template>
 
 <script>
-const API_BASE = 'http://localhost:8123/api';
+import { apiUrl, fetchJson } from '../api';
+import MarkdownMessage from '../components/MarkdownMessage.vue';
 
 const fallbackDevices = [
   {
@@ -449,8 +453,86 @@ const fallbackCases = [
   }
 ];
 
+const fallbackRoles = [
+  {
+    id: 'inspector',
+    name: '巡检员',
+    scene: '现场采集异常、上传图片和填写巡检参数',
+    permissions: ['查看设备台账', '提交诊断', '上传图片', '查看本人作业单']
+  },
+  {
+    id: 'maintainer',
+    name: '检修员',
+    scene: '接收作业单并执行安全隔离、拆检和复测',
+    permissions: ['查看作业单', '更新处理中', '提交待验收', '补充检修记录']
+  },
+  {
+    id: 'expert',
+    name: '专家',
+    scene: '复核 AI 结论、确认风险等级和修正案例知识',
+    permissions: ['专家复核', '修正诊断', '沉淀案例', '批准归档']
+  },
+  {
+    id: 'admin',
+    name: '管理员',
+    scene: '维护用户、权限、模块开关和知识库',
+    permissions: ['模块管理', '角色管理', '全部数据', '系统配置']
+  }
+];
+
+const fallbackModules = [
+  {
+    id: 'dashboard',
+    name: '态势看板',
+    ownerRole: '管理员',
+    status: '已启用',
+    maturity: 95,
+    functions: ['风险分布', '异常设备统计', '待处理作业', '最近作业'],
+    dependencies: ['设备台账', '作业单']
+  },
+  {
+    id: 'case',
+    name: '案例知识库管理',
+    ownerRole: '专家',
+    status: '已启用',
+    maturity: 86,
+    functions: ['故障案例', '症状标签', '图片特征', '处理方案'],
+    dependencies: ['RAG 文档', '案例匹配']
+  },
+  {
+    id: 'diagnosis',
+    name: '多模态诊断',
+    ownerRole: '巡检员',
+    status: '已启用',
+    maturity: 90,
+    functions: ['参数评分', '证据链', '相似案例', '自动作业单'],
+    dependencies: ['设备台账', '案例库', '图片分析']
+  },
+  {
+    id: 'workflow',
+    name: '作业流转',
+    ownerRole: '检修员',
+    status: '已启用',
+    maturity: 84,
+    functions: ['待派工', '处理中', '待验收', '专家复核', '已归档'],
+    dependencies: ['角色权限', '报告中心']
+  },
+  {
+    id: 'report',
+    name: '报告中心',
+    ownerRole: '专家',
+    status: '已启用',
+    maturity: 82,
+    functions: ['报告生成', 'Markdown 导出', '报告沉淀', '复盘材料'],
+    dependencies: ['诊断结果', '作业单']
+  }
+];
+
 export default {
   name: 'LoveApp',
+  components: {
+    MarkdownMessage
+  },
   data() {
     return {
       tabs: [
@@ -472,8 +554,8 @@ export default {
       backendOnline: false,
       dashboard: null,
       devices: fallbackDevices,
-      roles: [],
-      modules: [],
+      roles: fallbackRoles,
+      modules: fallbackModules,
       cases: fallbackCases,
       tasks: [],
       taskFlowEvents: [],
@@ -487,7 +569,7 @@ export default {
         { module: '前端工作台', status: '已实现', percent: 95, result: '核心页面可演示', nextStep: '补充录屏素材' },
         { module: '检修业务后端', status: '已实现', percent: 90, result: '业务接口可调用', nextStep: '接入数据库' },
         { module: '大模型问答', status: '已实现', percent: 85, result: 'Qwen 接入可用', nextStep: '增加调用审计' },
-        { module: '工程部署', status: '演示可用', percent: 65, result: '本地已跑通', nextStep: '整理部署文档' }
+        { module: '工程部署', status: '演示可用', percent: 70, result: '启动脚本与环境模板已整理', nextStep: '补充构建验证' }
       ],
       reports: [],
       diagnosis: null,
@@ -585,19 +667,14 @@ export default {
         this.backendOnline = false;
         this.dashboard = this.localDashboard();
         this.devices = fallbackDevices;
+        this.roles = fallbackRoles;
+        this.modules = fallbackModules;
         this.cases = fallbackCases;
         this.tasks = this.tasks.length ? this.tasks : [this.mockTask()];
       }
     },
     async fetchJson(path, options = {}) {
-      const response = await fetch(`${API_BASE}${path}`, {
-        headers: { 'Content-Type': 'application/json' },
-        ...options
-      });
-      if (!response.ok) {
-        throw new Error(`request failed: ${path}`);
-      }
-      return response.json();
+      return fetchJson(path, options);
     },
     localDashboard() {
       const riskDistribution = { 正常: 0, 关注: 0, 预警: 0, 严重: 0 };
@@ -628,7 +705,7 @@ export default {
           method: 'POST',
           body: JSON.stringify(this.inspection)
         });
-        this.tasks.unshift(this.diagnosis.generatedTask);
+        this.tasks = await this.fetchJson('/maintenance/tasks');
         this.backendOnline = true;
       } catch (error) {
         this.backendOnline = false;
@@ -704,6 +781,7 @@ export default {
       }
     },
     async updateTaskFlow(taskId, flow) {
+      const currentTask = this.tasks.find((task) => task.id === taskId);
       try {
         const updatedTask = await this.fetchJson(`/maintenance/tasks/${taskId}/flow`, {
           method: 'POST',
@@ -715,6 +793,17 @@ export default {
       } catch (error) {
         this.backendOnline = false;
         this.tasks = this.tasks.map((task) => task.id === taskId ? { ...task, status: flow.status } : task);
+        this.taskFlowEvents = [
+          {
+            taskId,
+            fromStatus: currentTask?.status || '待派工',
+            toStatus: flow.status,
+            operatorRole: flow.operatorRole,
+            note: `${flow.note}（本地演示）`,
+            operatedAt: new Date().toISOString()
+          },
+          ...this.taskFlowEvents
+        ];
       }
     },
     localDiagnosis() {
@@ -787,7 +876,19 @@ export default {
         '## 作业建议',
         ...this.diagnosis.recommendedActions.map((item) => `- ${item}`)
       ];
-      const blob = new Blob([markdown || lines.join('\n')], { type: 'text/markdown;charset=utf-8' });
+      const localMarkdown = lines.join('\n');
+      if (!markdown) {
+        const report = {
+          reportId: `RPT-DEMO-${Date.now().toString().slice(-5)}`,
+          title: '设备检修诊断报告',
+          riskLevel: this.diagnosis.riskLevel,
+          sections: ['风险结论', '证据链', '可能原因', '检修作业建议'],
+          markdown: localMarkdown,
+          generatedAt: new Date().toISOString()
+        };
+        this.reports = [report, ...this.reports.filter((item) => item.reportId !== report.reportId)];
+      }
+      const blob = new Blob([markdown || localMarkdown], { type: 'text/markdown;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
@@ -827,7 +928,7 @@ export default {
       if (this.eventSource) {
         this.eventSource.close();
       }
-      const url = `${API_BASE}/ai/app/chat/sse?message=${encodeURIComponent(message)}&chatId=${this.chatId}`;
+      const url = apiUrl(`/ai/app/chat/sse?message=${encodeURIComponent(message)}&chatId=${this.chatId}`);
       this.eventSource = new EventSource(url);
       this.isStreaming = true;
       const aiMessageIndex = this.messages.push({ role: 'ai', content: '' }) - 1;
@@ -1388,12 +1489,13 @@ li {
   background: #ffffff;
   padding: 12px 14px;
   line-height: 1.7;
-  white-space: pre-wrap;
+  white-space: normal;
 }
 
 .message.user .bubble {
   background: #15241e;
   color: #ffffff;
+  white-space: pre-wrap;
 }
 
 .chat-input {

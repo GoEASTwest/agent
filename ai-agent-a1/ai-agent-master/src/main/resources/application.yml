@@ -1,21 +1,31 @@
 spring:
   application:
     name: ai-agent
+  cloud:
+    nacos:
+      config:
+        enabled: false
+      discovery:
+        enabled: false
   datasource:
-    url: jdbc:postgresql://???????/ai_agent
-    username:
-    password:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/ai_agent}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
   ai:
     dashscope:
-      api-key: ${api-key}
-    chat:
-      options:
-        model: qwq-plus
+      api-key: ${DASHSCOPE_API_KEY:${api_key:}}
+      chat:
+        options:
+          model: ${DASHSCOPE_CHAT_MODEL:qwen-turbo}
     mcp:
       client:
         request-timeout: 30s
         stdio:
           servers-configuration: classpath:mcp-servers.json
+  autoconfigure:
+    exclude:
+      - org.springframework.ai.autoconfigure.mcp.client.McpClientAutoConfiguration
+      - org.springframework.ai.autoconfigure.mcp.client.StdioTransportAutoConfiguration
 #    vectorstore:
 #      pgvector:
 #        index-type: HNSW
@@ -52,4 +62,18 @@ knife4j:
   setting:
     language: zh_cn
 search-api:
-  api-key: ${search-api.api-key}
+  api-key: ${SEARCH_API_KEY:}
+
+dashscope:
+  compatible:
+    base-url: ${DASHSCOPE_COMPATIBLE_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+
+app:
+  demo:
+    startup-chat:
+      enabled: false
+  vectorstore:
+    simple:
+      enabled: false
+    pgvector:
+      enabled: false

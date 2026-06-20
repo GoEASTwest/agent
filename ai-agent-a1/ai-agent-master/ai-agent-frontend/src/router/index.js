@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router';
 import Home from '../views/Home.vue';
 import LoveApp from '../views/LoveApp.vue';
 import Manus from '../views/Manus.vue';
+import FileCenter from '../views/FileCenter.vue';
 
 const routes = [
   {
@@ -19,6 +20,11 @@ const routes = [
     path: '/manus',
     name: 'Manus',
     component: Manus
+  },
+  {
+    path: '/files',
+    name: 'FileCenter',
+    component: FileCenter
   }
 ];
 

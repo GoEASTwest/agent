@@ -26,6 +26,9 @@ public class WebSearchTool {
     @Tool(description = "Search for information from Baidu Search Engine")
     public String searchWeb(
             @ToolParam(description = "Search query keyword") String query) {
+        if (apiKey == null || apiKey.isBlank()) {
+            return "Web search is not configured. Set SEARCH_API_KEY to enable external search.";
+        }
         Map<String, Object> paramMap = new HashMap<>();
         paramMap.put("q", query);
         paramMap.put("api_key", apiKey);
@@ -36,7 +39,10 @@ public class WebSearchTool {
             JSONObject jsonObject = JSONUtil.parseObj(response);
             
             JSONArray organicResults = jsonObject.getJSONArray("organic_results");
-            List<Object> objects = organicResults.subList(0, 5);
+            if (organicResults == null || organicResults.isEmpty()) {
+                return "No search results found for: " + query;
+            }
+            List<Object> objects = organicResults.subList(0, Math.min(5, organicResults.size()));
             
             String result = objects.stream().map(obj -> {
                 JSONObject tmpJSONObject = (JSONObject) obj;

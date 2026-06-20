@@ -37,6 +37,7 @@ import static org.springframework.ai.chat.client.advisor.AbstractChatMemoryAdvis
 @Slf4j
 public class MyApp {
     private final ChatClient chatClient;
+    private final DashScopeCompatibleChatClient compatibleChatClient;
     private static final String SYSTEM_PROMPT = """
             你是“多模态设备检修知识检索与作业系统”的检修智能体，面向风机、泵、轴承、齿轮箱、电机等工业设备。
             你的目标不是泛泛聊天，而是辅助现场人员完成知识检索、故障诊断、风险判断和检修作业闭环。
@@ -54,7 +55,8 @@ public class MyApp {
             不要编造不存在的传感器读数、标准编号或检修记录。
             """;
 
-    public MyApp(ChatModel dashscopeChatModel) {
+    public MyApp(ChatModel dashscopeChatModel, DashScopeCompatibleChatClient compatibleChatClient) {
+        this.compatibleChatClient = compatibleChatClient;
         String fileDir = System.getProperty("user.dir") + "/tmp/chat-memory";
         ChatMemory chatMemory = new FileBasedChatMemory(fileDir);
 //        ChatMemory chatMemory = new InMemoryChatMemory();
@@ -72,14 +74,7 @@ public class MyApp {
     }
 
     public String doChat(String message, String chatId) {
-        ChatResponse chatResponse = chatClient
-                .prompt()
-                .user(message)
-                .advisors(spec -> spec.param(CHAT_MEMORY_CONVERSATION_ID_KEY, chatId)
-                        .param(CHAT_MEMORY_RETRIEVE_SIZE_KEY, 10))
-                .call()
-                .chatResponse();
-        String content = chatResponse.getResult().getOutput().getText();
+        String content = compatibleChatClient.chat(SYSTEM_PROMPT, message);
         log.info("content:{}", content);
         return content;
 
@@ -102,7 +97,8 @@ public class MyApp {
     }
 
     //rag知识库问答
-    @Resource
+    @Autowired(required = false)
+    @Qualifier("AppVectorStore")
     private VectorStore AppVectorStore;
 
     //pgvector向量库
@@ -115,6 +111,9 @@ public class MyApp {
     private QueryRewriter queryRewriter;
 
     public String doChatWithRag(String message, String chatId) {
+        if (AppVectorStore == null) {
+            return doChat(message, chatId);
+        }
         ChatResponse chatResponse = chatClient
                 .prompt()
                 .user(message)
@@ -185,7 +184,11 @@ public class MyApp {
     }
 
     public Flux<String> doChatByStream(String message, String chatId) {
-        return chatClient
+        Flux<String> response;
+        if (AppVectorStore == null) {
+            response = compatibleChatClient.stream(SYSTEM_PROMPT, message);
+        } else {
+            response = chatClient
                 .prompt()
                 .user(message)
                 .advisors(spec -> spec.param(CHAT_MEMORY_CONVERSATION_ID_KEY, chatId)
@@ -197,6 +200,28 @@ public class MyApp {
                 )
                 .stream()
                 .content();
+        }
+        return response.onErrorResume(ex -> {
+            log.error("DashScope chat stream failed", ex);
+            return Flux.just("AI 服务调用失败：" + simplifyAiError(ex));
+        });
+    }
+
+    private String simplifyAiError(Throwable ex) {
+        String message = ex.getMessage();
+        if (message == null || message.isBlank()) {
+            return "请检查 DashScope API Key、模型名称和账号额度。";
+        }
+        if (message.contains("AllocationQuota.FreeTierOnly")) {
+            return "千问模型免费额度已用完，且账号开启了仅使用免费额度模式。请到 DashScope 控制台关闭仅免费额度模式、开通付费，或改用仍有额度的模型。";
+        }
+        if (message.contains("only support stream mode")) {
+            return "当前模型只支持流式调用，请使用前端聊天的流式接口，或把 DASHSCOPE_CHAT_MODEL 改为 qwen-turbo、qwen-plus 等非纯推理模型。";
+        }
+        if (message.contains("401") || message.contains("Unauthorized")) {
+            return "DashScope API Key 无效或没有被后端读取到，请检查 .env 里的 DASHSCOPE_API_KEY。";
+        }
+        return message;
     }
 
 

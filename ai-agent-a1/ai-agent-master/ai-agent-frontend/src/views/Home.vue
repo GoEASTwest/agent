@@ -10,6 +10,7 @@
         <div class="actions">
           <router-link to="/love-app" class="primary-action">进入检修工作台</router-link>
           <router-link to="/manus" class="secondary-action">打开工具智能体</router-link>
+          <router-link to="/files" class="secondary-action">查看文件中心</router-link>
         </div>
       </div>
 

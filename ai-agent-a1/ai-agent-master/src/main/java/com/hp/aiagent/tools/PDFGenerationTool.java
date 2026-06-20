@@ -3,7 +3,6 @@ package com.hp.aiagent.tools;
 import cn.hutool.core.io.FileUtil;
 import com.hp.aiagent.Constant.FileConstant;
 import com.itextpdf.kernel.font.PdfFont;
-import com.itextpdf.kernel.font.PdfFontFactory;
 import com.itextpdf.kernel.pdf.PdfDocument;
 import com.itextpdf.kernel.pdf.PdfWriter;
 import com.itextpdf.layout.Document;
@@ -29,7 +28,7 @@ public class PDFGenerationTool {
                  PdfDocument pdf = new PdfDocument(writer);
                  Document document = new Document(pdf)) {
 
-                PdfFont font = PdfFontFactory.createFont("STSongStd-Light", "UniGB-UCS2-H");
+                PdfFont font = PdfFontProvider.createChineseFont();
                 document.setFont(font);
                 
                 Paragraph paragraph = new Paragraph(content);
