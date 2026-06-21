@@ -23,7 +23,10 @@
           <small>{{ backendOnline ? '后端接口在线' : '演示数据模式' }}</small>
           <h2>{{ currentTitle }}</h2>
         </div>
-        <button class="ghost-button" @click="loadAll">刷新数据</button>
+        <div class="topbar-actions">
+          <button class="ghost-button" @click="loadAll">刷新数据</button>
+          <button class="danger-button" @click="resetDemoData">重置演示数据</button>
+        </div>
       </header>
 
       <section v-if="activeTab === 'dashboard'" class="dashboard">
@@ -250,6 +253,10 @@
             文件名
             <input v-model="imageForm.fileName" placeholder="motor-terminal-burn.jpg" />
           </label>
+          <label>
+            上传图片
+            <input type="file" accept="image/*" @change="onVisionFileChange" />
+          </label>
           <label class="wide">
             图片描述
             <textarea v-model="imageForm.visualDescription" placeholder="描述图片中看到的焦痕、漏油、锈蚀、裂纹等特征"></textarea>
@@ -263,6 +270,9 @@
             <textarea v-model="visionForm.question" placeholder="请判断可见缺陷、风险等级和检修建议"></textarea>
           </label>
           <button class="primary-button" type="submit">分析图片特征</button>
+          <button class="ghost-button" type="button" @click="runUploadedImageAnalysis" :disabled="!visionUploadFile">
+            上传图片并分析
+          </button>
           <button class="ghost-button" type="button" @click="runVisionAnalysis">调用 Qwen 视觉分析</button>
         </form>
 
@@ -1005,6 +1015,7 @@ export default {
         imageUrl: '',
         question: '请判断图片中可见缺陷、风险等级和检修建议'
       },
+      visionUploadFile: null,
       visionAnalysis: null,
       featureOptions: ['油污', '锈蚀', '焦痕', '裂纹', '磨损', '漏液', '变色', '金属屑', '绝缘破损'],
       taskFlows: [
@@ -1012,9 +1023,10 @@ export default {
         { status: '处理中', operatorRole: 'maintainer', note: '检修员接单处理' },
         { status: '待验收', operatorRole: 'maintainer', note: '检修完成，提交验收' },
         { status: '专家复核', operatorRole: 'expert', note: '专家复核 AI 诊断和检修记录' },
+        { status: '驳回整改', operatorRole: 'expert', note: '验收未通过，退回检修员整改' },
         { status: '已归档', operatorRole: 'expert', note: '验收通过并归档复盘' }
       ],
-      workflowStatuses: ['待处理', '待派工', '处理中', '待验收', '专家复核', '已归档'],
+      workflowStatuses: ['待处理', '待派工', '处理中', '待验收', '专家复核', '驳回整改', '已归档'],
       messages: [],
       inputMessage: '',
       chatId: '',
@@ -1099,6 +1111,40 @@ export default {
     },
     async fetchJson(path, options = {}) {
       return fetchJson(path, options);
+    },
+    async resetDemoData() {
+      const confirmed = window.confirm('确定要重置演示数据吗？这会清空当前演示新增的设备、任务、报告和审核记录。');
+      if (!confirmed) return;
+      try {
+        this.dashboard = await this.fetchJson('/maintenance/demo/reset', { method: 'POST' });
+        this.imageAnalysis = null;
+        this.visionAnalysis = null;
+        this.diagnosis = null;
+        this.taskArchives = {};
+        await this.loadAll();
+        this.backendOnline = true;
+      } catch (error) {
+        this.backendOnline = false;
+        this.resetLocalDemoData();
+      }
+    },
+    resetLocalDemoData() {
+      this.dashboard = null;
+      this.devices = fallbackDevices;
+      this.roles = fallbackRoles;
+      this.modules = fallbackModules;
+      this.cases = fallbackCases;
+      this.tasks = [this.mockTask()];
+      this.taskFlowEvents = [];
+      this.reports = [];
+      this.inspectionRecords = [];
+      this.correctionRecords = [];
+      this.knowledgeContributions = fallbackKnowledgeContributions;
+      this.imageAnalysis = null;
+      this.visionAnalysis = null;
+      this.diagnosis = null;
+      this.taskArchives = {};
+      this.reportPage = { page: 1, size: 10, total: 0 };
     },
     localDashboard() {
       const riskDistribution = { 正常: 0, 关注: 0, 预警: 0, 严重: 0 };
@@ -1348,6 +1394,34 @@ export default {
           method: 'POST',
           body: JSON.stringify(this.imageForm)
         });
+        this.backendOnline = true;
+      } catch (error) {
+        this.backendOnline = false;
+        this.imageAnalysis = this.localImageAnalysis();
+      }
+    },
+    onVisionFileChange(event) {
+      const file = event.target.files?.[0];
+      this.visionUploadFile = file || null;
+      if (file) {
+        this.imageForm.fileName = file.name;
+      }
+    },
+    async runUploadedImageAnalysis() {
+      if (!this.visionUploadFile) return;
+      const formData = new FormData();
+      formData.append('file', this.visionUploadFile);
+      formData.append('deviceType', this.imageForm.deviceType);
+      formData.append('visualDescription', this.imageForm.visualDescription);
+      try {
+        const response = await fetch(apiUrl('/maintenance/vision/upload'), {
+          method: 'POST',
+          body: formData
+        });
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+        this.imageAnalysis = await response.json();
         this.backendOnline = true;
       } catch (error) {
         this.backendOnline = false;
@@ -1861,6 +1935,13 @@ nav button.active {
   margin-bottom: 18px;
 }
 
+.topbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .topbar small {
   color: #2b7c5a;
   font-weight: 800;
@@ -1873,6 +1954,7 @@ nav button.active {
 
 .ghost-button,
 .ghost-link,
+.danger-button,
 .primary-button,
 .chat-input button {
   min-height: 42px;
@@ -1885,6 +1967,13 @@ nav button.active {
   border: 1px solid #c7d4ce;
   background: #ffffff;
   color: #15241e;
+  padding: 0 16px;
+}
+
+.danger-button {
+  border: 1px solid #e0b7b7;
+  background: #fff4f4;
+  color: #9f1d1d;
   padding: 0 16px;
 }
 
@@ -2235,7 +2324,7 @@ li {
 
 .flow-line {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 8px;
 }
 

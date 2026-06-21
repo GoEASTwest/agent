@@ -69,6 +69,18 @@ public class MaintenanceService {
                               LocalKnowledgeService localKnowledgeService) {
         this.jdbcRepository = jdbcRepositoryProvider.getIfAvailable();
         this.localKnowledgeService = localKnowledgeService;
+        resetInMemoryDemoData();
+    }
+
+    private void resetInMemoryDemoData() {
+        devices.clear();
+        faultCases.clear();
+        tasks.clear();
+        reports.clear();
+        roles.clear();
+        modules.clear();
+        taskFlowEvents.clear();
+        knowledgeContributions.clear();
         devices.addAll(List.of(
                 new DeviceAsset("DEV-FAN-01", "一号引风机", "风机", "锅炉房 A 区", "运行", "关注",
                         List.of("振动", "温度", "电流", "噪声"), "2026-06-10 09:20"),
@@ -162,6 +174,15 @@ public class MaintenanceService {
                         List.of("报告生成", "Markdown 导出", "报告沉淀", "复盘材料"),
                         List.of("诊断结果", "作业单"))
         ));
+    }
+
+    public DashboardSummary resetDemoData() {
+        if (isJdbcEnabled()) {
+            jdbcRepository.resetDemoData();
+            return dashboard();
+        }
+        resetInMemoryDemoData();
+        return dashboard();
     }
 
     public List<DeviceAsset> listDevices() {
@@ -338,11 +359,11 @@ public class MaintenanceService {
                         "诊断报告支持专家修正风险、原因和措施，并归档到文件中心",
                         "增加多专家会签和修正前后对比视图"),
                 new CompletionItem("多模态图片能力", "已实现", 80,
-                        "已支持图片描述特征抽取、Qwen-VL 图片 URL 分析、相似案例匹配和诊断联动",
-                        "融合 image-backend 的上传、审核、标签和相似检索"),
-                new CompletionItem("作业闭环", "已实现", 90,
-                        "诊断结果可自动生成作业单，支持角色约束、状态流转、流转日志和报告导出",
-                        "补充负责人、审批、归档和复盘沉淀流程"),
+                        "已支持图片上传兜底分析、图片描述特征抽取、Qwen-VL 图片 URL 分析、相似案例匹配和诊断联动",
+                        "融合 image-backend 的审核、标签和相似检索"),
+                new CompletionItem("作业闭环", "已实现", 92,
+                        "诊断结果可自动生成作业单，支持角色约束、状态流转、驳回整改、流转日志和报告导出",
+                        "补充负责人签名和审批时限统计"),
                 new CompletionItem("模块管理", "已实现", 84,
                         "已沉淀模块清单、负责人角色、依赖关系、启用状态和成熟度",
                         "接入配置中心后支持动态开关"),
@@ -485,6 +506,26 @@ public class MaintenanceService {
         similarCases.stream().findFirst().ifPresent(faultCase -> tips.add("相似案例建议：" + faultCase.solution()));
 
         return new ImageAnalysisResult(request.fileName(), detectedFeatures, similarCases, tips);
+    }
+
+    public ImageAnalysisResult analyzeUploadedImage(String deviceType, String visualDescription, String originalFileName, byte[] content) {
+        String safeFileName = blankToDefault(originalFileName, "uploaded-maintenance-image.jpg")
+                .replace("\\", "_")
+                .replace("/", "_");
+        try {
+            Path root = Paths.get(FileConstant.FILE_SAVE_DIR).toAbsolutePath().normalize();
+            Path uploadDir = root.resolve("upload").normalize();
+            Files.createDirectories(uploadDir);
+            Path target = uploadDir.resolve(System.currentTimeMillis() + "-" + safeFileName).normalize();
+            Files.write(target, content == null ? new byte[0] : content);
+        } catch (IOException ex) {
+            throw new IllegalStateException("图片上传保存失败：" + ex.getMessage(), ex);
+        }
+        ImageAnalysisResult result = analyzeImage(new ImageAnalysisRequest(deviceType, safeFileName, visualDescription));
+        List<String> tips = new ArrayList<>(result.inspectionTips());
+        tips.add("上传图片已保存到本地文件中心的 upload 目录，可作为答辩演示素材留存");
+        tips.add("若图片已发布为公网 URL，可继续使用 Qwen 视觉图片 URL 进行模型复核");
+        return new ImageAnalysisResult(result.fileName(), result.detectedFeatures(), result.similarCases(), tips);
     }
 
     public MaintenanceTask updateTaskStatus(String taskId, String status) {
@@ -1154,8 +1195,8 @@ public class MaintenanceService {
         Map<String, List<String>> allowedRoleStatus = Map.of(
                 "inspector", List.of("待派工"),
                 "maintainer", List.of("处理中", "待验收"),
-                "expert", List.of("专家复核", "已归档"),
-                "admin", List.of("待派工", "处理中", "待验收", "专家复核", "已归档")
+                "expert", List.of("专家复核", "驳回整改", "已归档"),
+                "admin", List.of("待派工", "处理中", "待验收", "专家复核", "驳回整改", "已归档")
         );
         if (!allowedRoleStatus.getOrDefault(role, List.of()).contains(toStatus)) {
             throw new IllegalArgumentException("角色 " + role + " 无权流转到 " + toStatus);
@@ -1165,7 +1206,8 @@ public class MaintenanceService {
                 "待派工", List.of("处理中"),
                 "处理中", List.of("待验收"),
                 "待验收", List.of("专家复核", "已归档"),
-                "专家复核", List.of("处理中", "已归档"),
+                "专家复核", List.of("驳回整改", "已归档"),
+                "驳回整改", List.of("处理中", "待验收"),
                 "已归档", List.of()
         );
         if (!allowedTransitions.getOrDefault(fromStatus, List.of("待派工")).contains(toStatus)

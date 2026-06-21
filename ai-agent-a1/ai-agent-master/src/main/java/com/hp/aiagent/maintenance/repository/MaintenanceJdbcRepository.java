@@ -13,10 +13,13 @@ import com.hp.aiagent.maintenance.model.ReportResult;
 import com.hp.aiagent.maintenance.model.TaskFlowEvent;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.DependsOn;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.springframework.stereotype.Repository;
 
+import javax.sql.DataSource;
 import java.sql.ResultSet;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
@@ -36,10 +39,28 @@ public class MaintenanceJdbcRepository {
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
+    private final DataSource dataSource;
 
-    public MaintenanceJdbcRepository(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
+    public MaintenanceJdbcRepository(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper, DataSource dataSource) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
+        this.dataSource = dataSource;
+    }
+
+    public void resetDemoData() {
+        jdbcTemplate.update("delete from maintenance_report_correction");
+        jdbcTemplate.update("delete from maintenance_report");
+        jdbcTemplate.update("delete from maintenance_inspection_record");
+        jdbcTemplate.update("delete from maintenance_task_flow_event");
+        jdbcTemplate.update("delete from maintenance_task");
+        jdbcTemplate.update("delete from maintenance_knowledge_contribution");
+        jdbcTemplate.update("delete from maintenance_fault_case");
+        jdbcTemplate.update("delete from maintenance_device_asset");
+        try (var connection = dataSource.getConnection()) {
+            ScriptUtils.executeSqlScript(connection, new ClassPathResource("sql/maintenance_seed.sql"));
+        } catch (Exception ex) {
+            throw new IllegalStateException("演示数据重置失败：" + ex.getMessage(), ex);
+        }
     }
 
     public List<DeviceAsset> listDevices() {

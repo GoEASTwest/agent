@@ -43,6 +43,9 @@
 - PostgreSQL 业务持久化
 - PgVector 可选向量检索
 - 视觉分析结果一键生成诊断和作业单
+- 演示数据一键重置
+- 图片上传后的本地视觉特征分析兜底
+- 待派工、处理中、待验收、专家复核、驳回整改、已归档的作业审批流程
 
 默认演示模式不强制依赖 PostgreSQL、PgVector 或 MCP，便于比赛现场稳定启动。若开启 `APP_JDBC_PERSISTENCE_ENABLED=true`，核心业务数据会写入 PostgreSQL；若再开启 `APP_PGVECTOR_ENABLED=true`，本地 Markdown 知识库会写入 PgVector 并用于真实向量检索。
 
@@ -96,3 +99,4 @@ cd "ai-agent-a1\ai-agent-master"
 - 本地建议先开启 PostgreSQL 业务持久化验证数据不丢，再决定是否开启 PgVector。
 - 若启用 PostgreSQL，请在 `.env` 中配置 `DB_URL`、`DB_USERNAME`、`DB_PASSWORD`、`APP_JDBC_PERSISTENCE_ENABLED=true`。
 - 若启用 PgVector，请确认数据库已安装 pgvector 扩展，并设置 `APP_PGVECTOR_ENABLED=true`。
+- 赛题要求对照见 `ai-agent-a1/ai-agent-master/docs/赛题要求对照表.md`。

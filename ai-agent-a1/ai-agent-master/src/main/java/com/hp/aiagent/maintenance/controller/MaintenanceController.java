@@ -39,7 +39,9 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.util.List;
 
 @RestController
@@ -60,6 +62,11 @@ public class MaintenanceController {
     @GetMapping("/completion")
     public List<CompletionItem> completion() {
         return maintenanceService.completionOverview();
+    }
+
+    @PostMapping("/demo/reset")
+    public DashboardSummary resetDemoData() {
+        return maintenanceService.resetDemoData();
     }
 
     @GetMapping("/devices")
@@ -150,6 +157,18 @@ public class MaintenanceController {
     @PostMapping("/vision/analyze")
     public VisionAnalysisResult analyzeVision(@RequestBody VisionAnalysisRequest request) {
         return visionAnalysisService.analyze(request);
+    }
+
+    @PostMapping("/vision/upload")
+    public ImageAnalysisResult analyzeUploadedVision(@RequestParam(defaultValue = "其他") String deviceType,
+                                                     @RequestParam(required = false) String visualDescription,
+                                                     @RequestParam("file") MultipartFile file) throws IOException {
+        return maintenanceService.analyzeUploadedImage(
+                deviceType,
+                visualDescription,
+                file.getOriginalFilename(),
+                file.getBytes()
+        );
     }
 
     @PostMapping("/tasks/{taskId}/status")
