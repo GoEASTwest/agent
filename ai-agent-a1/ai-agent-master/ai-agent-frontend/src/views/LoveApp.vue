@@ -486,6 +486,36 @@
           <button class="primary-button" type="submit">提交待审核</button>
         </form>
 
+        <form class="quick-form knowledge-search" @submit.prevent="runKnowledgeSearch">
+          <h3>知识检索与引用</h3>
+          <label class="wide">
+            检索问题
+            <input v-model="knowledgeSearch.query" placeholder="例如：电机接线端子焦痕过热如何处理" />
+          </label>
+          <button class="primary-button" type="submit" :disabled="knowledgeSearch.loading">
+            {{ knowledgeSearch.loading ? '检索中' : '检索知识库' }}
+          </button>
+          <span v-if="knowledgeSearch.result" class="search-summary">
+            命中 {{ knowledgeSearch.result.matches.length }} 条 · 关键词 {{ knowledgeSearch.result.keywords.join(' / ') || '无' }}
+          </span>
+        </form>
+
+        <div v-if="knowledgeSearch.result" class="knowledge-results">
+          <article v-if="!knowledgeSearch.result.matches.length" class="empty-state">
+            <h3>未命中知识片段</h3>
+            <p>可以补充设备类型、故障现象、图片特征或关键参数后再次检索。</p>
+          </article>
+          <article v-for="match in knowledgeSearch.result.matches" :key="match.sourceType + match.sourceName + match.title" class="knowledge-card">
+            <div class="card-head">
+              <span>{{ match.sourceType }}</span>
+              <strong>{{ match.score }} 分</strong>
+            </div>
+            <h3>{{ match.title }}</h3>
+            <p>{{ match.sourceName }}</p>
+            <p>{{ match.snippet }}</p>
+          </article>
+        </div>
+
         <div class="knowledge-review-list">
           <article v-for="item in knowledgeContributions" :key="item.id" class="knowledge-card">
             <div class="card-head">
@@ -866,6 +896,11 @@ export default {
         solution: '停机断电，复紧端子并测量绝缘电阻，清理散热通道，试运行后复测三相电流。',
         content: '现场发现端子排发黑时，应同时检查压接力矩、端子温升和三相电流平衡，避免只做表面清理。'
       },
+      knowledgeSearch: {
+        query: '电机接线端子焦痕过热如何处理',
+        loading: false,
+        result: null
+      },
       completionItems: [
         { module: '前端工作台', status: '已实现', percent: 95, result: '核心页面可演示', nextStep: '补充录屏素材' },
         { module: '检修业务后端', status: '已实现', percent: 90, result: '业务接口可调用', nextStep: '接入数据库' },
@@ -975,6 +1010,9 @@ export default {
         this.reports = reports;
         this.knowledgeContributions = contributions;
         this.backendOnline = true;
+        if (!this.knowledgeSearch.result) {
+          await this.runKnowledgeSearch();
+        }
       } catch (error) {
         this.backendOnline = false;
         this.dashboard = this.localDashboard();
@@ -984,6 +1022,9 @@ export default {
         this.cases = fallbackCases;
         this.knowledgeContributions = this.knowledgeContributions.length ? this.knowledgeContributions : fallbackKnowledgeContributions;
         this.tasks = this.tasks.length ? this.tasks : [this.mockTask()];
+        if (!this.knowledgeSearch.result) {
+          this.knowledgeSearch.result = this.localKnowledgeSearch();
+        }
       }
     },
     async fetchJson(path, options = {}) {
@@ -1124,6 +1165,8 @@ export default {
         ));
         this.cases = await this.fetchJson('/maintenance/cases');
         this.knowledgeDocs = await this.fetchJson('/maintenance/knowledge');
+        this.knowledgeSearch.result = null;
+        await this.runKnowledgeSearch();
         this.backendOnline = true;
       } catch (error) {
         this.backendOnline = false;
@@ -1152,7 +1195,65 @@ export default {
           ];
           this.knowledgeDocs = [`${item.id} - ${item.title}`, ...this.knowledgeDocs];
         }
+        this.knowledgeSearch.result = this.localKnowledgeSearch();
       }
+    },
+    async runKnowledgeSearch() {
+      const query = this.knowledgeSearch.query.trim();
+      if (!query) return;
+      this.knowledgeSearch.loading = true;
+      try {
+        this.knowledgeSearch.result = await this.fetchJson('/maintenance/knowledge/search', {
+          method: 'POST',
+          body: JSON.stringify({ query })
+        });
+        this.backendOnline = true;
+      } catch (error) {
+        this.backendOnline = false;
+        this.knowledgeSearch.result = this.localKnowledgeSearch();
+      } finally {
+        this.knowledgeSearch.loading = false;
+      }
+    },
+    localKnowledgeSearch() {
+      const query = this.knowledgeSearch.query;
+      const domainKeywords = ['风机', '泵', '电机', '轴承', '齿轮箱', '振动', '温度', '电流', '压力', '过热', '磨损', '裂纹', '漏油', '锈蚀', '焦痕', '变色', '绝缘', '作业单', '验收'];
+      const keywords = Array.from(new Set([
+        ...domainKeywords.filter((keyword) => query.includes(keyword)),
+        ...this.parseListInput(query.replace(/\s+/g, '、'))
+      ]));
+      const sources = [
+        ...this.cases.map((item) => ({
+          sourceType: '故障案例',
+          sourceName: item.id,
+          title: item.faultName,
+          snippet: `设备类型：${item.deviceType}。症状：${item.symptoms.join('、')}。图片特征：${item.imageFeatures.join('、')}。原因：${item.cause}。处理方案：${item.solution}`
+        })),
+        ...this.knowledgeContributions
+          .filter((item) => item.status === '已通过')
+          .map((item) => ({
+            sourceType: '已审核经验',
+            sourceName: item.id,
+            title: item.title,
+            snippet: `故障名称：${item.faultName}。症状：${item.symptoms.join('、')}。图片特征：${item.imageFeatures.join('、')}。原因：${item.cause}。处理方案：${item.solution}。现场经验：${item.content}`
+          })),
+        ...this.knowledgeDocs.map((doc) => ({
+          sourceType: 'Markdown',
+          sourceName: doc.split(' - ')[0],
+          title: doc.split(' - ')[1] || doc,
+          snippet: '本地 Markdown 检修资料，可在 AI 知识问答中作为引用来源。'
+        }))
+      ];
+      const matches = sources
+        .map((source) => {
+          const text = `${source.title} ${source.snippet}`;
+          const score = keywords.reduce((value, keyword) => value + (text.includes(keyword) ? 1 : 0), 0);
+          return { ...source, score };
+        })
+        .filter((item) => item.score > 0)
+        .sort((left, right) => right.score - left.score)
+        .slice(0, 6);
+      return { query, keywords, matches };
     },
     async runDiagnosis() {
       try {
@@ -2025,8 +2126,26 @@ li {
 }
 
 .knowledge-workbench .quick-form,
+.knowledge-search,
+.knowledge-results,
 .knowledge-review-list {
   grid-column: span 3;
+}
+
+.knowledge-search {
+  align-items: end;
+}
+
+.search-summary {
+  align-self: center;
+  color: #66766e;
+  font-weight: 800;
+}
+
+.knowledge-results {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
 }
 
 .knowledge-review-list {
@@ -2170,6 +2289,7 @@ li {
     .delivery-strip,
     .completion-list,
     .reports,
+    .knowledge-results,
     .knowledge-review-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2184,6 +2304,7 @@ li {
   .reports,
   .knowledge-grid,
   .knowledge-workbench,
+  .knowledge-results,
   .knowledge-review-list,
   .case-card,
   .quick-form,

@@ -12,6 +12,7 @@ import com.hp.aiagent.maintenance.model.InspectionRequest;
 import com.hp.aiagent.maintenance.model.KnowledgeContribution;
 import com.hp.aiagent.maintenance.model.KnowledgeContributionRequest;
 import com.hp.aiagent.maintenance.model.KnowledgeReviewRequest;
+import com.hp.aiagent.maintenance.model.KnowledgeSearchRequest;
 import com.hp.aiagent.maintenance.model.MaintenanceTask;
 import com.hp.aiagent.maintenance.model.MaintenanceTaskCreateRequest;
 import com.hp.aiagent.maintenance.model.ModuleCapability;
@@ -26,6 +27,7 @@ import com.hp.aiagent.maintenance.model.VisionAnalysisRequest;
 import com.hp.aiagent.maintenance.model.VisionAnalysisResult;
 import com.hp.aiagent.maintenance.service.MaintenanceService;
 import com.hp.aiagent.maintenance.service.VisionAnalysisService;
+import com.hp.aiagent.rag.LocalKnowledgeService;
 import jakarta.annotation.Resource;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -94,6 +96,11 @@ public class MaintenanceController {
     @GetMapping("/knowledge")
     public List<String> knowledge() {
         return maintenanceService.listKnowledgeDocuments();
+    }
+
+    @PostMapping("/knowledge/search")
+    public LocalKnowledgeService.KnowledgeSearchResult searchKnowledge(@RequestBody KnowledgeSearchRequest request) {
+        return maintenanceService.searchKnowledge(request.query());
     }
 
     @GetMapping("/knowledge/contributions")

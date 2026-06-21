@@ -22,6 +22,7 @@ import com.hp.aiagent.maintenance.model.RoleProfile;
 import com.hp.aiagent.maintenance.model.TaskArchiveResult;
 import com.hp.aiagent.maintenance.model.TaskFlowEvent;
 import com.hp.aiagent.maintenance.repository.MaintenanceJdbcRepository;
+import com.hp.aiagent.rag.LocalKnowledgeService;
 import com.hp.aiagent.tools.PdfFontProvider;
 import com.itextpdf.kernel.font.PdfFont;
 import com.itextpdf.kernel.pdf.PdfDocument;
@@ -59,9 +60,12 @@ public class MaintenanceService {
     private final List<TaskFlowEvent> taskFlowEvents = new CopyOnWriteArrayList<>();
     private final List<KnowledgeContribution> knowledgeContributions = new CopyOnWriteArrayList<>();
     private final MaintenanceJdbcRepository jdbcRepository;
+    private final LocalKnowledgeService localKnowledgeService;
 
-    public MaintenanceService(ObjectProvider<MaintenanceJdbcRepository> jdbcRepositoryProvider) {
+    public MaintenanceService(ObjectProvider<MaintenanceJdbcRepository> jdbcRepositoryProvider,
+                              LocalKnowledgeService localKnowledgeService) {
         this.jdbcRepository = jdbcRepositoryProvider.getIfAvailable();
+        this.localKnowledgeService = localKnowledgeService;
         devices.addAll(List.of(
                 new DeviceAsset("DEV-FAN-01", "一号引风机", "风机", "锅炉房 A 区", "运行", "关注",
                         List.of("振动", "温度", "电流", "噪声"), "2026-06-10 09:20"),
@@ -251,6 +255,62 @@ public class MaintenanceService {
         return documents;
     }
 
+    public LocalKnowledgeService.KnowledgeSearchResult searchKnowledge(String query) {
+        List<LocalKnowledgeService.KnowledgeSource> dynamicSources = new ArrayList<>();
+        for (FaultCase faultCase : listFaultCases()) {
+            dynamicSources.add(new LocalKnowledgeService.KnowledgeSource(
+                    "故障案例",
+                    faultCase.id(),
+                    faultCase.faultName(),
+                    """
+                            设备类型：%s
+                            故障名称：%s
+                            典型症状：%s
+                            图片特征：%s
+                            可能原因：%s
+                            处理方案：%s
+                            严重度：%s
+                            """.formatted(
+                            faultCase.deviceType(),
+                            faultCase.faultName(),
+                            String.join("、", faultCase.symptoms()),
+                            String.join("、", faultCase.imageFeatures()),
+                            faultCase.cause(),
+                            faultCase.solution(),
+                            faultCase.severity()
+                    )
+            ));
+        }
+        listKnowledgeContributions().stream()
+                .filter(item -> "已通过".equals(item.status()))
+                .map(item -> new LocalKnowledgeService.KnowledgeSource(
+                        "已审核经验",
+                        item.id(),
+                        item.title(),
+                        """
+                                设备类型：%s
+                                故障名称：%s
+                                典型症状：%s
+                                图片特征：%s
+                                原因分析：%s
+                                处理方案：%s
+                                现场经验：%s
+                                审核意见：%s
+                                """.formatted(
+                                item.deviceType(),
+                                item.faultName(),
+                                String.join("、", item.symptoms()),
+                                String.join("、", item.imageFeatures()),
+                                item.cause(),
+                                item.solution(),
+                                item.content(),
+                                item.reviewNote()
+                        )
+                ))
+                .forEach(dynamicSources::add);
+        return localKnowledgeService.search(query, dynamicSources);
+    }
+
     public List<CompletionItem> completionOverview() {
         return List.of(
                 new CompletionItem("前端工作台", "已实现", 95,
@@ -266,7 +326,7 @@ public class MaintenanceService {
                         "已内置巡检员、检修员、专家、管理员四类角色和操作权限",
                         "接入登录态后按真实用户鉴权"),
                 new CompletionItem("RAG 知识库", "原型完成", 75,
-                        "本地 Markdown 知识库已加载到内存向量库并用于检修问答",
+                        "本地 Markdown、故障案例和已审核经验可统一检索，并在 AI 问答中展示引用来源",
                         "生产部署时启用 PostgreSQL + PgVector 持久化"),
                 new CompletionItem("知识沉淀审核", "已实现", 86,
                         "一线经验可提交待审，专家通过后自动转入案例库并生成归档文件",

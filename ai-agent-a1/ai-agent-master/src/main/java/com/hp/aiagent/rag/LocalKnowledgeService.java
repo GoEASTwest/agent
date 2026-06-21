@@ -36,44 +36,80 @@ public class LocalKnowledgeService {
     }
 
     public KnowledgeContext retrieve(String query) {
-        List<String> keywords = extractKeywords(query);
-        if (keywords.isEmpty()) {
-            return KnowledgeContext.empty();
-        }
-        List<KnowledgeMatch> matches = loadDocuments().stream()
-                .map(document -> matchDocument(document, keywords))
-                .filter(match -> match.score() > 0)
-                .sorted(Comparator.comparingInt(KnowledgeMatch::score).reversed())
-                .limit(3)
-                .toList();
-        if (matches.isEmpty()) {
+        return retrieve(query, List.of());
+    }
+
+    public KnowledgeContext retrieve(String query, List<KnowledgeSource> additionalSources) {
+        KnowledgeSearchResult searchResult = search(query, additionalSources);
+        if (!searchResult.hasMatches()) {
             return KnowledgeContext.empty();
         }
         StringBuilder context = new StringBuilder();
         List<String> citations = new ArrayList<>();
-        for (KnowledgeMatch match : matches) {
+        for (KnowledgeMatch match : searchResult.matches()) {
             if (context.length() >= MAX_CONTEXT_CHARS) {
                 break;
             }
-            citations.add(match.filename());
-            context.append("来源：").append(match.filename()).append("\n");
+            String citation = "%s：%s - %s".formatted(match.sourceType(), match.sourceName(), match.title());
+            citations.add(citation);
+            context.append("来源：").append(citation).append("\n");
             context.append(match.snippet()).append("\n\n");
         }
         return new KnowledgeContext(context.toString().trim(), citations.stream().distinct().toList());
     }
 
+    public KnowledgeSearchResult search(String query) {
+        return search(query, List.of());
+    }
+
+    public KnowledgeSearchResult search(String query, List<KnowledgeSource> additionalSources) {
+        List<String> keywords = extractKeywords(query);
+        if (keywords.isEmpty()) {
+            return new KnowledgeSearchResult(query == null ? "" : query.trim(), List.of(), List.of());
+        }
+        List<KnowledgeDocument> allDocuments = new ArrayList<>(loadDocuments());
+        if (additionalSources != null) {
+            additionalSources.stream()
+                    .filter(source -> source != null && source.content() != null && !source.content().isBlank())
+                    .map(source -> new KnowledgeDocument(
+                            blankToDefault(source.sourceType(), "业务知识"),
+                            blankToDefault(source.sourceName(), "未命名来源"),
+                            blankToDefault(source.title(), source.sourceName()),
+                            source.content()
+                    ))
+                    .forEach(allDocuments::add);
+        }
+        List<KnowledgeMatch> matches = allDocuments.stream()
+                .map(document -> matchDocument(document, keywords))
+                .filter(match -> match.score() > 0)
+                .sorted(Comparator.comparingInt(KnowledgeMatch::score).reversed())
+                .limit(6)
+                .toList();
+        return new KnowledgeSearchResult(query == null ? "" : query.trim(), keywords, matches);
+    }
+
     private KnowledgeMatch matchDocument(KnowledgeDocument document, List<String> keywords) {
-        String lowerContent = document.content().toLowerCase(Locale.ROOT);
+        String searchableText = (document.title() + "\n" + document.content()).toLowerCase(Locale.ROOT);
         int score = 0;
         for (String keyword : keywords) {
-            if (lowerContent.contains(keyword.toLowerCase(Locale.ROOT))) {
+            String lowerKeyword = keyword.toLowerCase(Locale.ROOT);
+            if (document.title().toLowerCase(Locale.ROOT).contains(lowerKeyword)) {
+                score += 3;
+            }
+            if (searchableText.contains(lowerKeyword)) {
                 score++;
             }
         }
         if (score == 0) {
-            return new KnowledgeMatch(document.filename(), 0, "");
+            return new KnowledgeMatch(document.sourceType(), document.sourceName(), document.title(), 0, "");
         }
-        return new KnowledgeMatch(document.filename(), score, bestSnippet(document.content(), keywords));
+        return new KnowledgeMatch(
+                document.sourceType(),
+                document.sourceName(),
+                document.title(),
+                score,
+                bestSnippet(document.content(), keywords)
+        );
     }
 
     private String bestSnippet(String content, List<String> keywords) {
@@ -122,6 +158,13 @@ public class LocalKnowledgeService {
         return keywords.stream().limit(12).toList();
     }
 
+    private String blankToDefault(String value, String defaultValue) {
+        if (value == null || value.isBlank()) {
+            return defaultValue == null || defaultValue.isBlank() ? "未命名" : defaultValue;
+        }
+        return value.trim();
+    }
+
     private List<KnowledgeDocument> loadDocuments() {
         List<KnowledgeDocument> current = documents;
         if (current != null) {
@@ -136,7 +179,7 @@ public class LocalKnowledgeService {
                 }
                 String filename = resource.getFilename() == null ? "unknown.md" : resource.getFilename();
                 String content = resource.getContentAsString(StandardCharsets.UTF_8);
-                loaded.add(new KnowledgeDocument(filename, content));
+                loaded.add(new KnowledgeDocument("Markdown", filename, filename, content));
             }
             documents = loaded;
             return loaded;
@@ -146,10 +189,19 @@ public class LocalKnowledgeService {
         }
     }
 
-    private record KnowledgeDocument(String filename, String content) {
+    private record KnowledgeDocument(String sourceType, String sourceName, String title, String content) {
     }
 
-    private record KnowledgeMatch(String filename, int score, String snippet) {
+    public record KnowledgeSource(String sourceType, String sourceName, String title, String content) {
+    }
+
+    public record KnowledgeSearchResult(String query, List<String> keywords, List<KnowledgeMatch> matches) {
+        public boolean hasMatches() {
+            return matches != null && !matches.isEmpty();
+        }
+    }
+
+    public record KnowledgeMatch(String sourceType, String sourceName, String title, int score, String snippet) {
     }
 
     public record KnowledgeContext(String context, List<String> citations) {

@@ -4,6 +4,7 @@ import com.alibaba.cloud.ai.dashscope.api.DashScopeApi;
 import com.hp.aiagent.advisor.MyLoggerAdvisor;
 import com.hp.aiagent.advisor.ReReadingAdvisor;
 import com.hp.aiagent.chatmemory.FileBasedChatMemory;
+import com.hp.aiagent.maintenance.service.MaintenanceService;
 import com.hp.aiagent.rag.AppRagCustomAdvisorFactory;
 import com.hp.aiagent.rag.LocalKnowledgeService;
 import com.hp.aiagent.rag.QueryRewriter;
@@ -40,6 +41,7 @@ public class MyApp {
     private final ChatClient chatClient;
     private final DashScopeCompatibleChatClient compatibleChatClient;
     private final LocalKnowledgeService localKnowledgeService;
+    private final MaintenanceService maintenanceService;
     private static final String SYSTEM_PROMPT = """
             你是“多模态设备检修知识检索与作业系统”的检修智能体，面向风机、泵、轴承、齿轮箱、电机等工业设备。
             你的目标不是泛泛聊天，而是辅助现场人员完成知识检索、故障诊断、风险判断和检修作业闭环。
@@ -58,9 +60,11 @@ public class MyApp {
             """;
 
     public MyApp(ChatModel dashscopeChatModel, DashScopeCompatibleChatClient compatibleChatClient,
-                 LocalKnowledgeService localKnowledgeService) {
+                 LocalKnowledgeService localKnowledgeService,
+                 MaintenanceService maintenanceService) {
         this.compatibleChatClient = compatibleChatClient;
         this.localKnowledgeService = localKnowledgeService;
+        this.maintenanceService = maintenanceService;
         String fileDir = System.getProperty("user.dir") + "/tmp/chat-memory";
         ChatMemory chatMemory = new FileBasedChatMemory(fileDir);
 //        ChatMemory chatMemory = new InMemoryChatMemory();
@@ -78,7 +82,7 @@ public class MyApp {
     }
 
     public String doChat(String message, String chatId) {
-        LocalKnowledgeService.KnowledgeContext knowledgeContext = localKnowledgeService.retrieve(message);
+        LocalKnowledgeService.KnowledgeContext knowledgeContext = knowledgeContext(message);
         String content = compatibleChatClient.chat(SYSTEM_PROMPT, enrichWithLocalKnowledge(message, knowledgeContext))
                 + citationText(knowledgeContext);
         log.info("content:{}", content);
@@ -192,7 +196,7 @@ public class MyApp {
     public Flux<String> doChatByStream(String message, String chatId) {
         Flux<String> response;
         if (AppVectorStore == null) {
-            LocalKnowledgeService.KnowledgeContext knowledgeContext = localKnowledgeService.retrieve(message);
+            LocalKnowledgeService.KnowledgeContext knowledgeContext = knowledgeContext(message);
             response = compatibleChatClient.stream(SYSTEM_PROMPT, enrichWithLocalKnowledge(message, knowledgeContext))
                     .concatWithValues(citationText(knowledgeContext));
         } else {
@@ -213,6 +217,32 @@ public class MyApp {
             log.error("DashScope chat stream failed", ex);
             return Flux.just("AI 服务调用失败：" + simplifyAiError(ex));
         });
+    }
+
+    private LocalKnowledgeService.KnowledgeContext knowledgeContext(String message) {
+        try {
+            LocalKnowledgeService.KnowledgeSearchResult searchResult = maintenanceService.searchKnowledge(message);
+            if (!searchResult.hasMatches()) {
+                return LocalKnowledgeService.KnowledgeContext.empty();
+            }
+            String context = searchResult.matches().stream()
+                    .limit(4)
+                    .map(match -> """
+                            来源：%s：%s - %s
+                            %s
+                            """.formatted(match.sourceType(), match.sourceName(), match.title(), match.snippet()))
+                    .reduce("", (left, right) -> left + "\n" + right)
+                    .trim();
+            List<String> citations = searchResult.matches().stream()
+                    .limit(4)
+                    .map(match -> "%s：%s - %s".formatted(match.sourceType(), match.sourceName(), match.title()))
+                    .distinct()
+                    .toList();
+            return new LocalKnowledgeService.KnowledgeContext(context, citations);
+        } catch (Exception ex) {
+            log.warn("动态知识检索失败，降级使用本地 Markdown 知识库", ex);
+            return localKnowledgeService.retrieve(message);
+        }
     }
 
     private String enrichWithLocalKnowledge(String message, LocalKnowledgeService.KnowledgeContext knowledgeContext) {
