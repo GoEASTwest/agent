@@ -1,6 +1,7 @@
 package com.hp.aiagent.maintenance.controller;
 
 import com.hp.aiagent.maintenance.model.DashboardSummary;
+import com.hp.aiagent.maintenance.model.DeviceCreateRequest;
 import com.hp.aiagent.maintenance.model.DeviceAsset;
 import com.hp.aiagent.maintenance.model.DiagnosisResult;
 import com.hp.aiagent.maintenance.model.FaultCase;
@@ -9,9 +10,11 @@ import com.hp.aiagent.maintenance.model.ImageAnalysisRequest;
 import com.hp.aiagent.maintenance.model.ImageAnalysisResult;
 import com.hp.aiagent.maintenance.model.InspectionRequest;
 import com.hp.aiagent.maintenance.model.MaintenanceTask;
+import com.hp.aiagent.maintenance.model.MaintenanceTaskCreateRequest;
 import com.hp.aiagent.maintenance.model.ModuleCapability;
 import com.hp.aiagent.maintenance.model.ReportResult;
 import com.hp.aiagent.maintenance.model.RoleProfile;
+import com.hp.aiagent.maintenance.model.TaskArchiveResult;
 import com.hp.aiagent.maintenance.model.TaskFlowEvent;
 import com.hp.aiagent.maintenance.model.TaskFlowUpdateRequest;
 import com.hp.aiagent.maintenance.model.TaskStatusUpdateRequest;
@@ -54,6 +57,11 @@ public class MaintenanceController {
         return maintenanceService.listDevices();
     }
 
+    @PostMapping("/devices")
+    public DeviceAsset createDevice(@RequestBody DeviceCreateRequest request) {
+        return maintenanceService.createDevice(request);
+    }
+
     @GetMapping("/roles")
     public List<RoleProfile> roles() {
         return maintenanceService.listRoles();
@@ -72,6 +80,11 @@ public class MaintenanceController {
     @GetMapping("/tasks")
     public List<MaintenanceTask> tasks() {
         return maintenanceService.listTasks();
+    }
+
+    @PostMapping("/tasks")
+    public MaintenanceTask createTask(@RequestBody MaintenanceTaskCreateRequest request) {
+        return maintenanceService.createTask(request);
     }
 
     @GetMapping("/knowledge")
@@ -102,6 +115,11 @@ public class MaintenanceController {
     @PostMapping("/tasks/{taskId}/flow")
     public MaintenanceTask updateTaskFlow(@PathVariable String taskId, @RequestBody TaskFlowUpdateRequest request) {
         return maintenanceService.updateTaskStatus(taskId, request.status(), request.operatorRole(), request.note());
+    }
+
+    @PostMapping("/tasks/{taskId}/archive")
+    public TaskArchiveResult archiveTask(@PathVariable String taskId) {
+        return maintenanceService.archiveTask(taskId);
     }
 
     @GetMapping("/tasks/flow")
