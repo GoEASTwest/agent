@@ -5,6 +5,7 @@ import com.hp.aiagent.advisor.MyLoggerAdvisor;
 import com.hp.aiagent.advisor.ReReadingAdvisor;
 import com.hp.aiagent.chatmemory.FileBasedChatMemory;
 import com.hp.aiagent.rag.AppRagCustomAdvisorFactory;
+import com.hp.aiagent.rag.LocalKnowledgeService;
 import com.hp.aiagent.rag.QueryRewriter;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -38,6 +39,7 @@ import static org.springframework.ai.chat.client.advisor.AbstractChatMemoryAdvis
 public class MyApp {
     private final ChatClient chatClient;
     private final DashScopeCompatibleChatClient compatibleChatClient;
+    private final LocalKnowledgeService localKnowledgeService;
     private static final String SYSTEM_PROMPT = """
             你是“多模态设备检修知识检索与作业系统”的检修智能体，面向风机、泵、轴承、齿轮箱、电机等工业设备。
             你的目标不是泛泛聊天，而是辅助现场人员完成知识检索、故障诊断、风险判断和检修作业闭环。
@@ -55,8 +57,10 @@ public class MyApp {
             不要编造不存在的传感器读数、标准编号或检修记录。
             """;
 
-    public MyApp(ChatModel dashscopeChatModel, DashScopeCompatibleChatClient compatibleChatClient) {
+    public MyApp(ChatModel dashscopeChatModel, DashScopeCompatibleChatClient compatibleChatClient,
+                 LocalKnowledgeService localKnowledgeService) {
         this.compatibleChatClient = compatibleChatClient;
+        this.localKnowledgeService = localKnowledgeService;
         String fileDir = System.getProperty("user.dir") + "/tmp/chat-memory";
         ChatMemory chatMemory = new FileBasedChatMemory(fileDir);
 //        ChatMemory chatMemory = new InMemoryChatMemory();
@@ -74,7 +78,9 @@ public class MyApp {
     }
 
     public String doChat(String message, String chatId) {
-        String content = compatibleChatClient.chat(SYSTEM_PROMPT, message);
+        LocalKnowledgeService.KnowledgeContext knowledgeContext = localKnowledgeService.retrieve(message);
+        String content = compatibleChatClient.chat(SYSTEM_PROMPT, enrichWithLocalKnowledge(message, knowledgeContext))
+                + citationText(knowledgeContext);
         log.info("content:{}", content);
         return content;
 
@@ -186,7 +192,9 @@ public class MyApp {
     public Flux<String> doChatByStream(String message, String chatId) {
         Flux<String> response;
         if (AppVectorStore == null) {
-            response = compatibleChatClient.stream(SYSTEM_PROMPT, message);
+            LocalKnowledgeService.KnowledgeContext knowledgeContext = localKnowledgeService.retrieve(message);
+            response = compatibleChatClient.stream(SYSTEM_PROMPT, enrichWithLocalKnowledge(message, knowledgeContext))
+                    .concatWithValues(citationText(knowledgeContext));
         } else {
             response = chatClient
                 .prompt()
@@ -205,6 +213,30 @@ public class MyApp {
             log.error("DashScope chat stream failed", ex);
             return Flux.just("AI 服务调用失败：" + simplifyAiError(ex));
         });
+    }
+
+    private String enrichWithLocalKnowledge(String message, LocalKnowledgeService.KnowledgeContext knowledgeContext) {
+        if (knowledgeContext == null || !knowledgeContext.hasContext()) {
+            return message;
+        }
+        return """
+                请优先结合以下本地 Markdown 知识库片段回答。若片段不足以支撑结论，请明确说明“知识库未覆盖该细节”，不要编造标准编号或数值。
+
+                【本地知识库片段】
+                %s
+
+                【用户问题】
+                %s
+                """.formatted(knowledgeContext.context(), message);
+    }
+
+    private String citationText(LocalKnowledgeService.KnowledgeContext knowledgeContext) {
+        if (knowledgeContext == null || !knowledgeContext.hasContext() || knowledgeContext.citations().isEmpty()) {
+            return "";
+        }
+        return "\n\n**知识库引用**\n" + String.join("\n", knowledgeContext.citations().stream()
+                .map(item -> "- " + item)
+                .toList());
     }
 
     private String simplifyAiError(Throwable ex) {
