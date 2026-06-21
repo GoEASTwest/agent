@@ -218,9 +218,9 @@ java -jar target/image-backend-0.0.1-SNAPSHOT.jar
 
 ##  联系方式
 
-- 项目维护者: HP
-- 邮箱: hp92467@163.com
-- 项目链接: (https://github.com/hp92467/image-backend)
+- 项目维护者: Li
+- 邮箱: 1548610658@qq.com
+- 项目链接: ([GoEASTwest/agent](https://github.com/GoEASTwest/agent))
 
 ---
 

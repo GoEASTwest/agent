@@ -322,8 +322,8 @@ ai-agent/
 
 ## 📞 联系方式
 
-- 项目维护者: HP
-- 邮箱: hp92467@163.com
-- 项目链接: (https://github.com/hp92467/ai-agent)
+- 项目维护者: Li
+- 邮箱: 1548610658@qq.com
+- 项目链接: ([GoEASTwest/agent](https://github.com/GoEASTwest/agent))
 
 ---
