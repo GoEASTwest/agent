@@ -76,7 +76,7 @@ app:
     simple:
       enabled: false
     pgvector:
-      enabled: false
+      enabled: ${APP_PGVECTOR_ENABLED:false}
   persistence:
     jdbc:
       enabled: ${APP_JDBC_PERSISTENCE_ENABLED:false}

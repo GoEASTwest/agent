@@ -22,6 +22,9 @@ public class PgVectorVectorStoreConfig {
     @Resource
     private AppDocumentLoader AppDocumentLoader;
 
+    @Resource
+    private MyTokenTextSplitter myTokenTextSplitter;
+
     @Bean
     public VectorStore pgVectorVectorStore(JdbcTemplate jdbcTemplate, EmbeddingModel dashscopeEmbeddingModel) {
         VectorStore vectorStore = PgVectorStore.builder(jdbcTemplate, dashscopeEmbeddingModel)
@@ -34,7 +37,7 @@ public class PgVectorVectorStoreConfig {
                 .maxDocumentBatchSize(10000)
                 .build();
 
-        List<Document> documents = AppDocumentLoader.loadMarkdowns();
+        List<Document> documents = AppDocumentLoader.loadChunkedMaintenanceMarkdowns(myTokenTextSplitter);
         vectorStore.add(documents);
         return vectorStore;
     }

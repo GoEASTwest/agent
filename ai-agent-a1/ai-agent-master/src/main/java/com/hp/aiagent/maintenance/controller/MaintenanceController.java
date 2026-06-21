@@ -8,6 +8,7 @@ import com.hp.aiagent.maintenance.model.FaultCase;
 import com.hp.aiagent.maintenance.model.CompletionItem;
 import com.hp.aiagent.maintenance.model.ImageAnalysisRequest;
 import com.hp.aiagent.maintenance.model.ImageAnalysisResult;
+import com.hp.aiagent.maintenance.model.InspectionRecord;
 import com.hp.aiagent.maintenance.model.InspectionRequest;
 import com.hp.aiagent.maintenance.model.KnowledgeContribution;
 import com.hp.aiagent.maintenance.model.KnowledgeContributionRequest;
@@ -16,6 +17,8 @@ import com.hp.aiagent.maintenance.model.KnowledgeSearchRequest;
 import com.hp.aiagent.maintenance.model.MaintenanceTask;
 import com.hp.aiagent.maintenance.model.MaintenanceTaskCreateRequest;
 import com.hp.aiagent.maintenance.model.ModuleCapability;
+import com.hp.aiagent.maintenance.model.PageResult;
+import com.hp.aiagent.maintenance.model.ReportCorrectionRecord;
 import com.hp.aiagent.maintenance.model.ReportCorrectionRequest;
 import com.hp.aiagent.maintenance.model.ReportResult;
 import com.hp.aiagent.maintenance.model.RoleProfile;
@@ -34,6 +37,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -88,6 +92,13 @@ public class MaintenanceController {
         return maintenanceService.listTasks();
     }
 
+    @GetMapping("/tasks/page")
+    public PageResult<MaintenanceTask> tasksPage(@RequestParam(required = false) String status,
+                                                 @RequestParam(defaultValue = "1") Integer page,
+                                                 @RequestParam(defaultValue = "20") Integer size) {
+        return maintenanceService.listTasksPage(status, page, size);
+    }
+
     @PostMapping("/tasks")
     public MaintenanceTask createTask(@RequestBody MaintenanceTaskCreateRequest request) {
         return maintenanceService.createTask(request);
@@ -121,6 +132,14 @@ public class MaintenanceController {
     @PostMapping("/diagnose")
     public DiagnosisResult diagnose(@RequestBody InspectionRequest request) {
         return maintenanceService.diagnose(request);
+    }
+
+    @GetMapping("/inspections")
+    public List<InspectionRecord> inspections(@RequestParam(required = false) String deviceId,
+                                              @RequestParam(required = false) String riskLevel,
+                                              @RequestParam(defaultValue = "1") Integer page,
+                                              @RequestParam(defaultValue = "20") Integer size) {
+        return maintenanceService.listInspectionRecords(page, size, deviceId, riskLevel);
     }
 
     @PostMapping("/image/analyze")
@@ -166,5 +185,19 @@ public class MaintenanceController {
     @GetMapping("/reports")
     public List<ReportResult> reports() {
         return maintenanceService.listReports();
+    }
+
+    @GetMapping("/reports/page")
+    public PageResult<ReportResult> reportsPage(@RequestParam(required = false) String riskLevel,
+                                                @RequestParam(defaultValue = "1") Integer page,
+                                                @RequestParam(defaultValue = "20") Integer size) {
+        return maintenanceService.listReportsPage(riskLevel, page, size);
+    }
+
+    @GetMapping("/reports/corrections")
+    public List<ReportCorrectionRecord> reportCorrections(@RequestParam(required = false) String reportId,
+                                                          @RequestParam(defaultValue = "1") Integer page,
+                                                          @RequestParam(defaultValue = "20") Integer size) {
+        return maintenanceService.listReportCorrections(page, size, reportId);
     }
 }

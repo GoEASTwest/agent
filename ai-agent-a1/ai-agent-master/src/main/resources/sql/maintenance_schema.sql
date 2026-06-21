@@ -93,9 +93,29 @@ create table if not exists maintenance_knowledge_contribution (
     pdf_download_url varchar(512)
 );
 
+create table if not exists maintenance_report_correction (
+    id varchar(64) primary key,
+    source_report_id varchar(64),
+    corrected_report_id varchar(64),
+    reviewer varchar(128),
+    corrected_risk_level varchar(32),
+    corrected_evidence_json text,
+    corrected_cause_json text,
+    corrected_action_json text,
+    review_note text,
+    created_at timestamp default current_timestamp
+);
+
 create index if not exists idx_maintenance_device_risk on maintenance_device_asset(risk_level);
 create index if not exists idx_maintenance_case_device_type on maintenance_fault_case(device_type);
 create index if not exists idx_maintenance_task_status on maintenance_task(status);
+create index if not exists idx_maintenance_task_created_at on maintenance_task(created_at);
 create index if not exists idx_maintenance_task_flow_task on maintenance_task_flow_event(task_id);
 create index if not exists idx_maintenance_report_generated_at on maintenance_report(generated_at);
+create index if not exists idx_maintenance_report_risk on maintenance_report(risk_level);
 create index if not exists idx_maintenance_knowledge_status on maintenance_knowledge_contribution(status);
+create index if not exists idx_maintenance_inspection_device on maintenance_inspection_record(device_id);
+create index if not exists idx_maintenance_inspection_risk on maintenance_inspection_record(risk_level);
+create index if not exists idx_maintenance_inspection_created_at on maintenance_inspection_record(created_at);
+create index if not exists idx_maintenance_report_correction_source on maintenance_report_correction(source_report_id);
+create index if not exists idx_maintenance_report_correction_created_at on maintenance_report_correction(created_at);

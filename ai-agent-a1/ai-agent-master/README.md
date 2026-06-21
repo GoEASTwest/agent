@@ -58,16 +58,25 @@
 - 默认仍使用内存演示数据，保证没有数据库时也能稳定启动。
 - 新增 `APP_JDBC_PERSISTENCE_ENABLED` 开关，设置为 `true` 后启用 PostgreSQL 业务持久化。
 - 持久化范围覆盖设备台账、故障案例、检修作业单、作业流转记录、诊断报告、知识提交与审核记录。
+- 诊断请求会写入诊断历史，AI 诊断自动生成的作业单会保存到作业单表。
+- AI 专家修正记录新增独立持久化表，同时保留修正报告归档。
+- 报告、任务、诊断历史新增分页/筛选接口，便于后续扩展大量记录场景。
 - 后端启动时会自动执行 `src/main/resources/sql/maintenance_schema.sql` 和 `src/main/resources/sql/maintenance_seed.sql`，初始化业务表和演示数据。
-- PgVector 仍保持独立开关，适合后续做真实向量知识库。
+- PgVector 保持独立开关，打开后可使用真实向量知识库；未打开时仍保留内存演示兜底。
 
-### 7. Markdown 和 PDF 展示优化
+### 7. PgVector 真实向量 RAG
+
+- 新增 `APP_PGVECTOR_ENABLED` 开关，设置为 `true` 后启用 PostgreSQL + PgVector 向量知识库。
+- 启用 PgVector 后，系统会将 `src/main/resources/document/*.md` 切分为 chunks，写入 `vector_store` 表。
+- AI 知识问答会优先使用 PgVector 相似度检索；PgVector 未启用或无命中时，自动回退到本地 Markdown、故障案例和已审核经验检索。
+
+### 8. Markdown 和 PDF 展示优化
 
 - 前端新增 `MarkdownMessage.vue`，使用 `marked` + `dompurify` 渲染 AI 返回内容，避免直接显示 Markdown 源码。
 - 检修工作台 AI 问答和工具智能体回答都已接入 Markdown 渲染。
 - 新增 `PdfFontProvider`，并调整 PDF 生成逻辑，解决中文 PDF 字体和乱码问题。
 
-### 8. 本地运行稳定性优化
+### 9. 本地运行稳定性优化
 
 - 新增 `.env.example`，方便配置 DashScope、数据库、搜索等环境变量。
 - 优化 `scripts/start-backend.ps1`，支持加载 `.env`、检查 Java 21、默认关闭 PgVector/MCP 自动连接。
@@ -75,12 +84,12 @@
 - 调整 `vite.config.js` 和统一前端 `src/api.js`，解决本地开发时 `/api` 代理到后端的问题。
 - 默认演示模式使用内存数据，不强制依赖 PostgreSQL、PgVector 或 MCP，便于比赛现场稳定启动。
 
-### 9. 银河麒麟 / LoongArch 部署补充
+### 10. 银河麒麟 / LoongArch 部署补充
 
 - 新增 `docs/银河麒麟LoongArch部署说明.md`，说明在比赛指定虚拟机上检查 `loongarch64` 架构、安装 Java 21、安装 Node.js、配置 DashScope、构建和启动项目的步骤。
 - 当前 Windows 环境已完成前后端构建验证；最终提交前仍需在大赛提供的银河麒麟 LoongArch 虚拟机中完成真实运行验证。
 
-### 10. 与原项目保留关系
+### 11. 与原项目保留关系
 
 - 原有 Spring Boot、Vue 3、Spring AI、RAG、工具类、MCP 搜索器等结构仍保留。
 - PostgreSQL + PgVector 配置仍保留，后续可按需要重新打开。

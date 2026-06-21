@@ -29,9 +29,7 @@ public class AppVectorStoreConfig {
         SimpleVectorStore simpleVectorStore = SimpleVectorStore.builder(dashscopeEmbeddingModel)
                 .build();
         
-        List<Document> documents = AppDocumentLoader.loadMarkdowns();
-//        自主分割文档器
-//        List<Document> splitDocuments = myTokenTextSplitter.splitCustomized(documents);
+        List<Document> documents = AppDocumentLoader.loadChunkedMaintenanceMarkdowns(myTokenTextSplitter);
         //ai元信息增强器
         List<Document> enrichDocuments = myKeywordEnricher.enrichDocuments(documents);
         simpleVectorStore.add(enrichDocuments);

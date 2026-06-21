@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Component
 @Slf4j
@@ -42,5 +43,18 @@ class AppDocumentLoader {
             log.error("Markdown 文档加载失败", e);
         }
         return allDocuments;
+    }
+
+    public List<Document> loadChunkedMaintenanceMarkdowns(MyTokenTextSplitter textSplitter) {
+        List<Document> documents = loadMarkdowns();
+        List<Document> chunks = textSplitter.splitCustomized(documents);
+        AtomicInteger index = new AtomicInteger(1);
+        return chunks.stream()
+                .map(document -> document.mutate()
+                        .metadata("domain", "maintenance")
+                        .metadata("sourceType", "Markdown")
+                        .metadata("chunkNo", index.getAndIncrement())
+                        .build())
+                .toList();
     }
 }

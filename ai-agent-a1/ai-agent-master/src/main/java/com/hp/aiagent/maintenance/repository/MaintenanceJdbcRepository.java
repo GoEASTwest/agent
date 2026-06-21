@@ -4,8 +4,11 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hp.aiagent.maintenance.model.DeviceAsset;
 import com.hp.aiagent.maintenance.model.FaultCase;
+import com.hp.aiagent.maintenance.model.InspectionRecord;
 import com.hp.aiagent.maintenance.model.KnowledgeContribution;
 import com.hp.aiagent.maintenance.model.MaintenanceTask;
+import com.hp.aiagent.maintenance.model.PageResult;
+import com.hp.aiagent.maintenance.model.ReportCorrectionRecord;
 import com.hp.aiagent.maintenance.model.ReportResult;
 import com.hp.aiagent.maintenance.model.TaskFlowEvent;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -115,6 +118,32 @@ public class MaintenanceJdbcRepository {
                 """, taskMapper());
     }
 
+    public PageResult<MaintenanceTask> listTasksPage(String status, int page, int size) {
+        int safePage = Math.max(page, 1);
+        int safeSize = normalizePageSize(size);
+        int offset = (safePage - 1) * safeSize;
+        boolean hasStatus = status != null && !status.isBlank();
+        String where = hasStatus ? " where status = ?" : "";
+        Long total = hasStatus
+                ? jdbcTemplate.queryForObject("select count(*) from maintenance_task" + where, Long.class, status)
+                : jdbcTemplate.queryForObject("select count(*) from maintenance_task", Long.class);
+        List<MaintenanceTask> records = hasStatus
+                ? jdbcTemplate.query("""
+                        select id, device_id, title, priority, status, step_json, spare_part_json, acceptance_json, created_at
+                        from maintenance_task
+                        where status = ?
+                        order by created_at desc, id
+                        limit ? offset ?
+                        """, taskMapper(), status, safeSize, offset)
+                : jdbcTemplate.query("""
+                        select id, device_id, title, priority, status, step_json, spare_part_json, acceptance_json, created_at
+                        from maintenance_task
+                        order by created_at desc, id
+                        limit ? offset ?
+                        """, taskMapper(), safeSize, offset);
+        return new PageResult<>(records, safePage, safeSize, total == null ? 0 : total);
+    }
+
     public void saveTask(MaintenanceTask task) {
         jdbcTemplate.update("""
                 insert into maintenance_task
@@ -167,6 +196,61 @@ public class MaintenanceJdbcRepository {
         );
     }
 
+    public List<InspectionRecord> listInspectionRecords(int page, int size, String deviceId, String riskLevel) {
+        int safePage = Math.max(page, 1);
+        int safeSize = normalizePageSize(size);
+        int offset = (safePage - 1) * safeSize;
+        String normalizedDeviceId = deviceId == null ? "" : deviceId.trim();
+        String normalizedRiskLevel = riskLevel == null ? "" : riskLevel.trim();
+        return jdbcTemplate.query("""
+                select id, device_id, device_type, description, temperature, vibration, current_value,
+                       image_feature_json, risk_level, score, evidence_json, created_at
+                from maintenance_inspection_record
+                where (? = '' or device_id = ?)
+                  and (? = '' or risk_level = ?)
+                order by created_at desc, id
+                limit ? offset ?
+                """,
+                inspectionMapper(),
+                normalizedDeviceId, normalizedDeviceId,
+                normalizedRiskLevel, normalizedRiskLevel,
+                safeSize, offset
+        );
+    }
+
+    public void saveInspectionRecord(InspectionRecord record) {
+        jdbcTemplate.update("""
+                insert into maintenance_inspection_record
+                (id, device_id, device_type, description, temperature, vibration, current_value,
+                 image_feature_json, risk_level, score, evidence_json, created_at)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                on conflict (id) do update set
+                    device_id = excluded.device_id,
+                    device_type = excluded.device_type,
+                    description = excluded.description,
+                    temperature = excluded.temperature,
+                    vibration = excluded.vibration,
+                    current_value = excluded.current_value,
+                    image_feature_json = excluded.image_feature_json,
+                    risk_level = excluded.risk_level,
+                    score = excluded.score,
+                    evidence_json = excluded.evidence_json
+                """,
+                record.id(),
+                record.deviceId(),
+                record.deviceType(),
+                record.description(),
+                record.temperature(),
+                record.vibration(),
+                record.current(),
+                toJson(record.imageFeatures()),
+                record.riskLevel(),
+                record.score(),
+                toJson(record.evidence()),
+                toTimestamp(record.createdAt())
+        );
+    }
+
     public List<ReportResult> listReports() {
         return jdbcTemplate.query("""
                 select report_id, title, risk_level, section_json, markdown, generated_at, markdown_download_url, pdf_download_url
@@ -174,6 +258,26 @@ public class MaintenanceJdbcRepository {
                 order by generated_at desc
                 limit 20
                 """, reportMapper());
+    }
+
+    public PageResult<ReportResult> listReportsPage(String riskLevel, int page, int size) {
+        int safePage = Math.max(page, 1);
+        int safeSize = normalizePageSize(size);
+        int offset = (safePage - 1) * safeSize;
+        String normalizedRiskLevel = riskLevel == null ? "" : riskLevel.trim();
+        Long total = jdbcTemplate.queryForObject("""
+                select count(*)
+                from maintenance_report
+                where (? = '' or risk_level = ?)
+                """, Long.class, normalizedRiskLevel, normalizedRiskLevel);
+        List<ReportResult> records = jdbcTemplate.query("""
+                select report_id, title, risk_level, section_json, markdown, generated_at, markdown_download_url, pdf_download_url
+                from maintenance_report
+                where (? = '' or risk_level = ?)
+                order by generated_at desc
+                limit ? offset ?
+                """, reportMapper(), normalizedRiskLevel, normalizedRiskLevel, safeSize, offset);
+        return new PageResult<>(records, safePage, safeSize, total == null ? 0 : total);
     }
 
     public void saveReport(ReportResult report) {
@@ -198,6 +302,50 @@ public class MaintenanceJdbcRepository {
                 toTimestamp(report.generatedAt()),
                 report.markdownDownloadUrl(),
                 report.pdfDownloadUrl()
+        );
+    }
+
+    public List<ReportCorrectionRecord> listReportCorrections(int page, int size, String sourceReportId) {
+        int safePage = Math.max(page, 1);
+        int safeSize = normalizePageSize(size);
+        int offset = (safePage - 1) * safeSize;
+        String normalizedReportId = sourceReportId == null ? "" : sourceReportId.trim();
+        return jdbcTemplate.query("""
+                select id, source_report_id, corrected_report_id, reviewer, corrected_risk_level,
+                       corrected_evidence_json, corrected_cause_json, corrected_action_json, review_note, created_at
+                from maintenance_report_correction
+                where (? = '' or source_report_id = ?)
+                order by created_at desc, id
+                limit ? offset ?
+                """, correctionMapper(), normalizedReportId, normalizedReportId, safeSize, offset);
+    }
+
+    public void saveReportCorrection(ReportCorrectionRecord record) {
+        jdbcTemplate.update("""
+                insert into maintenance_report_correction
+                (id, source_report_id, corrected_report_id, reviewer, corrected_risk_level,
+                 corrected_evidence_json, corrected_cause_json, corrected_action_json, review_note, created_at)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                on conflict (id) do update set
+                    source_report_id = excluded.source_report_id,
+                    corrected_report_id = excluded.corrected_report_id,
+                    reviewer = excluded.reviewer,
+                    corrected_risk_level = excluded.corrected_risk_level,
+                    corrected_evidence_json = excluded.corrected_evidence_json,
+                    corrected_cause_json = excluded.corrected_cause_json,
+                    corrected_action_json = excluded.corrected_action_json,
+                    review_note = excluded.review_note
+                """,
+                record.id(),
+                record.sourceReportId(),
+                record.correctedReportId(),
+                record.reviewer(),
+                record.correctedRiskLevel(),
+                toJson(record.correctedEvidence()),
+                toJson(record.correctedCauses()),
+                toJson(record.correctedActions()),
+                record.reviewNote(),
+                toTimestamp(record.createdAt())
         );
     }
 
@@ -303,6 +451,23 @@ public class MaintenanceJdbcRepository {
         );
     }
 
+    private RowMapper<InspectionRecord> inspectionMapper() {
+        return (rs, rowNum) -> new InspectionRecord(
+                rs.getString("id"),
+                rs.getString("device_id"),
+                rs.getString("device_type"),
+                rs.getString("description"),
+                getDouble(rs, "temperature"),
+                getDouble(rs, "vibration"),
+                getDouble(rs, "current_value"),
+                fromJsonList(rs.getString("image_feature_json")),
+                rs.getString("risk_level"),
+                rs.getInt("score"),
+                fromJsonList(rs.getString("evidence_json")),
+                toLocalDateTime(rs.getTimestamp("created_at"))
+        );
+    }
+
     private RowMapper<ReportResult> reportMapper() {
         return (rs, rowNum) -> new ReportResult(
                 rs.getString("report_id"),
@@ -313,6 +478,21 @@ public class MaintenanceJdbcRepository {
                 toLocalDateTime(rs.getTimestamp("generated_at")),
                 rs.getString("markdown_download_url"),
                 rs.getString("pdf_download_url")
+        );
+    }
+
+    private RowMapper<ReportCorrectionRecord> correctionMapper() {
+        return (rs, rowNum) -> new ReportCorrectionRecord(
+                rs.getString("id"),
+                rs.getString("source_report_id"),
+                rs.getString("corrected_report_id"),
+                rs.getString("reviewer"),
+                rs.getString("corrected_risk_level"),
+                fromJsonList(rs.getString("corrected_evidence_json")),
+                fromJsonList(rs.getString("corrected_cause_json")),
+                fromJsonList(rs.getString("corrected_action_json")),
+                rs.getString("review_note"),
+                toLocalDateTime(rs.getTimestamp("created_at"))
         );
     }
 
@@ -381,5 +561,17 @@ public class MaintenanceJdbcRepository {
                 return toTimestamp(LocalDateTime.now());
             }
         }
+    }
+
+    private int normalizePageSize(int size) {
+        if (size <= 0) {
+            return 20;
+        }
+        return Math.min(size, 100);
+    }
+
+    private Double getDouble(ResultSet rs, String columnName) throws java.sql.SQLException {
+        double value = rs.getDouble(columnName);
+        return rs.wasNull() ? null : value;
     }
 }

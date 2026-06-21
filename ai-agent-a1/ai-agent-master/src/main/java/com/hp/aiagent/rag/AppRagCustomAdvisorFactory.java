@@ -11,9 +11,9 @@ import org.springframework.ai.vectorstore.filter.FilterExpressionBuilder;
 /*自定义检索增强顾问工厂*/
 @Slf4j
 public class AppRagCustomAdvisorFactory {
-    public static Advisor createLoveAppRagCustomAdvisor(VectorStore vectorStore, String status) {
+    public static Advisor createLoveAppRagCustomAdvisor(VectorStore vectorStore, String domain) {
         Filter.Expression expression = new FilterExpressionBuilder()
-                .eq("status", status)
+                .eq("domain", domain)
                 .build();
         DocumentRetriever documentRetriever = VectorStoreDocumentRetriever.builder()
                 .vectorStore(vectorStore)

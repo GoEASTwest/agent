@@ -8,6 +8,7 @@ import com.hp.aiagent.maintenance.service.MaintenanceService;
 import com.hp.aiagent.rag.AppRagCustomAdvisorFactory;
 import com.hp.aiagent.rag.LocalKnowledgeService;
 import com.hp.aiagent.rag.QueryRewriter;
+import com.hp.aiagent.rag.VectorKnowledgeService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -21,6 +22,7 @@ import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
@@ -42,6 +44,7 @@ public class MyApp {
     private final DashScopeCompatibleChatClient compatibleChatClient;
     private final LocalKnowledgeService localKnowledgeService;
     private final MaintenanceService maintenanceService;
+    private final VectorKnowledgeService vectorKnowledgeService;
     private static final String SYSTEM_PROMPT = """
             你是“多模态设备检修知识检索与作业系统”的检修智能体，面向风机、泵、轴承、齿轮箱、电机等工业设备。
             你的目标不是泛泛聊天，而是辅助现场人员完成知识检索、故障诊断、风险判断和检修作业闭环。
@@ -61,10 +64,12 @@ public class MyApp {
 
     public MyApp(ChatModel dashscopeChatModel, DashScopeCompatibleChatClient compatibleChatClient,
                  LocalKnowledgeService localKnowledgeService,
-                 MaintenanceService maintenanceService) {
+                 MaintenanceService maintenanceService,
+                 ObjectProvider<VectorKnowledgeService> vectorKnowledgeServiceProvider) {
         this.compatibleChatClient = compatibleChatClient;
         this.localKnowledgeService = localKnowledgeService;
         this.maintenanceService = maintenanceService;
+        this.vectorKnowledgeService = vectorKnowledgeServiceProvider.getIfAvailable();
         String fileDir = System.getProperty("user.dir") + "/tmp/chat-memory";
         ChatMemory chatMemory = new FileBasedChatMemory(fileDir);
 //        ChatMemory chatMemory = new InMemoryChatMemory();
@@ -139,7 +144,7 @@ public class MyApp {
 
                 .advisors(
                         AppRagCustomAdvisorFactory.createLoveAppRagCustomAdvisor(
-                                AppVectorStore, "轴承"
+                                AppVectorStore, "maintenance"
                         )
                 )
 
@@ -207,7 +212,7 @@ public class MyApp {
                         .param(CHAT_MEMORY_RETRIEVE_SIZE_KEY, 10))
                 .advisors(
                         AppRagCustomAdvisorFactory.createLoveAppRagCustomAdvisor(
-                                AppVectorStore, "设备检修"
+                                AppVectorStore, "maintenance"
                         )
                 )
                 .stream()
@@ -221,6 +226,12 @@ public class MyApp {
 
     private LocalKnowledgeService.KnowledgeContext knowledgeContext(String message) {
         try {
+            if (vectorKnowledgeService != null) {
+                LocalKnowledgeService.KnowledgeContext vectorContext = vectorKnowledgeService.retrieve(message);
+                if (vectorContext.hasContext()) {
+                    return vectorContext;
+                }
+            }
             LocalKnowledgeService.KnowledgeSearchResult searchResult = maintenanceService.searchKnowledge(message);
             if (!searchResult.hasMatches()) {
                 return LocalKnowledgeService.KnowledgeContext.empty();

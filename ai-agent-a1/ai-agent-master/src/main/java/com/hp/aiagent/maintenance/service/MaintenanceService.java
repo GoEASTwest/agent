@@ -9,6 +9,7 @@ import com.hp.aiagent.maintenance.model.FaultCase;
 import com.hp.aiagent.maintenance.model.CompletionItem;
 import com.hp.aiagent.maintenance.model.ImageAnalysisRequest;
 import com.hp.aiagent.maintenance.model.ImageAnalysisResult;
+import com.hp.aiagent.maintenance.model.InspectionRecord;
 import com.hp.aiagent.maintenance.model.InspectionRequest;
 import com.hp.aiagent.maintenance.model.KnowledgeContribution;
 import com.hp.aiagent.maintenance.model.KnowledgeContributionRequest;
@@ -16,6 +17,8 @@ import com.hp.aiagent.maintenance.model.KnowledgeReviewRequest;
 import com.hp.aiagent.maintenance.model.MaintenanceTask;
 import com.hp.aiagent.maintenance.model.MaintenanceTaskCreateRequest;
 import com.hp.aiagent.maintenance.model.ModuleCapability;
+import com.hp.aiagent.maintenance.model.PageResult;
+import com.hp.aiagent.maintenance.model.ReportCorrectionRecord;
 import com.hp.aiagent.maintenance.model.ReportCorrectionRequest;
 import com.hp.aiagent.maintenance.model.ReportResult;
 import com.hp.aiagent.maintenance.model.RoleProfile;
@@ -424,8 +427,9 @@ public class MaintenanceService {
         similarCases.stream().findFirst().ifPresent(faultCase -> recommendedActions.add(faultCase.solution()));
 
         MaintenanceTask generatedTask = createTask(request, riskLevel, recommendedActions);
+        saveTask(generatedTask);
 
-        return new DiagnosisResult(
+        DiagnosisResult result = new DiagnosisResult(
                 riskLevel,
                 Math.min(score, 100),
                 evidence,
@@ -434,6 +438,8 @@ public class MaintenanceService {
                 similarCases,
                 generatedTask
         );
+        saveInspectionRecord(request, result);
+        return result;
     }
 
     public ImageAnalysisResult analyzeImage(ImageAnalysisRequest request) {
@@ -569,6 +575,46 @@ public class MaintenanceService {
         return reports.stream().limit(20).toList();
     }
 
+    public PageResult<ReportResult> listReportsPage(String riskLevel, Integer page, Integer size) {
+        int safePage = normalizePage(page);
+        int safeSize = normalizePageSize(size);
+        if (isJdbcEnabled()) {
+            return jdbcRepository.listReportsPage(riskLevel, safePage, safeSize);
+        }
+        List<ReportResult> filtered = reports.stream()
+                .filter(report -> riskLevel == null || riskLevel.isBlank() || riskLevel.equals(report.riskLevel()))
+                .sorted(Comparator.comparing(ReportResult::generatedAt).reversed())
+                .toList();
+        return page(filtered, safePage, safeSize);
+    }
+
+    public PageResult<MaintenanceTask> listTasksPage(String status, Integer page, Integer size) {
+        int safePage = normalizePage(page);
+        int safeSize = normalizePageSize(size);
+        if (isJdbcEnabled()) {
+            return jdbcRepository.listTasksPage(status, safePage, safeSize);
+        }
+        List<MaintenanceTask> filtered = tasks.stream()
+                .filter(task -> status == null || status.isBlank() || status.equals(task.status()))
+                .sorted(Comparator.comparing(MaintenanceTask::createdAt).reversed())
+                .toList();
+        return page(filtered, safePage, safeSize);
+    }
+
+    public List<InspectionRecord> listInspectionRecords(Integer page, Integer size, String deviceId, String riskLevel) {
+        if (isJdbcEnabled()) {
+            return jdbcRepository.listInspectionRecords(normalizePage(page), normalizePageSize(size), deviceId, riskLevel);
+        }
+        return List.of();
+    }
+
+    public List<ReportCorrectionRecord> listReportCorrections(Integer page, Integer size, String reportId) {
+        if (isJdbcEnabled()) {
+            return jdbcRepository.listReportCorrections(normalizePage(page), normalizePageSize(size), reportId);
+        }
+        return List.of();
+    }
+
     public List<KnowledgeContribution> listKnowledgeContributions() {
         if (isJdbcEnabled()) {
             return jdbcRepository.listKnowledgeContributions();
@@ -640,7 +686,10 @@ public class MaintenanceService {
 
     public ReportResult correctReport(ReportCorrectionRequest request) {
         String riskLevel = blankToDefault(request.correctedRiskLevel(), "专家复核");
-        String reportId = blankToDefault(request.reportId(), "RPT-CORR-" + UUID.randomUUID().toString().substring(0, 6).toUpperCase(Locale.ROOT));
+        String sourceReportId = blankToDefault(request.reportId(), "");
+        String reportId = sourceReportId.isBlank()
+                ? "RPT-CORR-" + UUID.randomUUID().toString().substring(0, 6).toUpperCase(Locale.ROOT)
+                : sourceReportId;
         List<String> sections = List.of("专家修正结论", "修正证据", "修正原因", "修正措施", "复核说明");
         String markdown = """
                 # AI 诊断结果专家修正记录
@@ -688,6 +737,18 @@ public class MaintenanceService {
                 downloadUrl("pdf", pdfFileName)
         );
         saveReport(report);
+        saveReportCorrection(new ReportCorrectionRecord(
+                "RC-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT),
+                reportId,
+                correctedId,
+                blankToDefault(request.reviewer(), "专家"),
+                riskLevel,
+                emptyToDefault(request.correctedEvidence(), List.of("专家认为原始证据需要补充现场复测数据")),
+                emptyToDefault(request.correctedCauses(), List.of("待结合拆检结果最终确认")),
+                emptyToDefault(request.correctedActions(), List.of("按修正意见更新作业单并归档")),
+                blankToDefault(request.reviewNote(), "专家已完成修正，建议纳入案例复盘"),
+                LocalDateTime.now()
+        ));
         return report;
     }
 
@@ -942,6 +1003,32 @@ public class MaintenanceService {
         reports.add(0, report);
     }
 
+    private void saveInspectionRecord(InspectionRequest request, DiagnosisResult result) {
+        if (!isJdbcEnabled()) {
+            return;
+        }
+        jdbcRepository.saveInspectionRecord(new InspectionRecord(
+                "INSP-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT),
+                blankToDefault(request.deviceId(), "UNKNOWN"),
+                blankToDefault(request.deviceType(), "未分类"),
+                blankToDefault(request.description(), ""),
+                request.temperature(),
+                request.vibration(),
+                request.current(),
+                emptyToDefault(request.imageFeatures(), List.of()),
+                result.riskLevel(),
+                result.score(),
+                result.evidence(),
+                LocalDateTime.now()
+        ));
+    }
+
+    private void saveReportCorrection(ReportCorrectionRecord record) {
+        if (isJdbcEnabled()) {
+            jdbcRepository.saveReportCorrection(record);
+        }
+    }
+
     private void saveKnowledgeContribution(KnowledgeContribution contribution) {
         if (isJdbcEnabled()) {
             jdbcRepository.saveKnowledgeContribution(contribution);
@@ -949,6 +1036,23 @@ public class MaintenanceService {
         }
         knowledgeContributions.removeIf(item -> item.id().equals(contribution.id()));
         knowledgeContributions.add(0, contribution);
+    }
+
+    private int normalizePage(Integer page) {
+        return page == null || page < 1 ? 1 : page;
+    }
+
+    private int normalizePageSize(Integer size) {
+        if (size == null || size < 1) {
+            return 20;
+        }
+        return Math.min(size, 100);
+    }
+
+    private <T> PageResult<T> page(List<T> values, int page, int size) {
+        int fromIndex = Math.min((page - 1) * size, values.size());
+        int toIndex = Math.min(fromIndex + size, values.size());
+        return new PageResult<>(values.subList(fromIndex, toIndex), page, size, values.size());
     }
 
     private String toMarkdownList(List<String> items) {
