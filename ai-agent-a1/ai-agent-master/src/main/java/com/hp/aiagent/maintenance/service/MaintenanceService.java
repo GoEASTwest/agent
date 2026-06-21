@@ -1,5 +1,7 @@
 package com.hp.aiagent.maintenance.service;
 
+import com.hp.aiagent.Constant.FileConstant;
+import com.hp.aiagent.maintenance.model.DeviceCreateRequest;
 import com.hp.aiagent.maintenance.model.DashboardSummary;
 import com.hp.aiagent.maintenance.model.DeviceAsset;
 import com.hp.aiagent.maintenance.model.DiagnosisResult;
@@ -9,12 +11,26 @@ import com.hp.aiagent.maintenance.model.ImageAnalysisRequest;
 import com.hp.aiagent.maintenance.model.ImageAnalysisResult;
 import com.hp.aiagent.maintenance.model.InspectionRequest;
 import com.hp.aiagent.maintenance.model.MaintenanceTask;
+import com.hp.aiagent.maintenance.model.MaintenanceTaskCreateRequest;
 import com.hp.aiagent.maintenance.model.ModuleCapability;
 import com.hp.aiagent.maintenance.model.ReportResult;
 import com.hp.aiagent.maintenance.model.RoleProfile;
+import com.hp.aiagent.maintenance.model.TaskArchiveResult;
 import com.hp.aiagent.maintenance.model.TaskFlowEvent;
+import com.hp.aiagent.tools.PdfFontProvider;
+import com.itextpdf.kernel.font.PdfFont;
+import com.itextpdf.kernel.pdf.PdfDocument;
+import com.itextpdf.kernel.pdf.PdfWriter;
+import com.itextpdf.layout.Document;
+import com.itextpdf.layout.element.Paragraph;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -117,6 +133,25 @@ public class MaintenanceService {
         return devices;
     }
 
+    public DeviceAsset createDevice(DeviceCreateRequest request) {
+        String id = blankToDefault(request.id(), "DEV-" + UUID.randomUUID().toString().substring(0, 6).toUpperCase(Locale.ROOT));
+        if (devices.stream().anyMatch(device -> device.id().equals(id))) {
+            throw new IllegalArgumentException("设备编号已存在：" + id);
+        }
+        DeviceAsset device = new DeviceAsset(
+                id,
+                requiredText(request.name(), "设备名称"),
+                blankToDefault(request.type(), "未分类"),
+                blankToDefault(request.location(), "待确认位置"),
+                blankToDefault(request.status(), "运行"),
+                blankToDefault(request.riskLevel(), "正常"),
+                emptyToDefault(request.sensors(), List.of("温度", "振动")),
+                blankToDefault(request.lastInspectionTime(), LocalDateTime.now().toString().replace('T', ' ').substring(0, 16))
+        );
+        devices.add(device);
+        return device;
+    }
+
     public List<FaultCase> listFaultCases() {
         return faultCases;
     }
@@ -140,6 +175,26 @@ public class MaintenanceService {
         return tasks.stream()
                 .sorted(Comparator.comparing(MaintenanceTask::createdAt).reversed())
                 .toList();
+    }
+
+    public MaintenanceTask createTask(MaintenanceTaskCreateRequest request) {
+        String id = blankToDefault(request.id(), "TASK-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT));
+        if (tasks.stream().anyMatch(task -> task.id().equals(id))) {
+            throw new IllegalArgumentException("作业单编号已存在：" + id);
+        }
+        MaintenanceTask task = new MaintenanceTask(
+                id,
+                requiredText(request.deviceId(), "设备编号"),
+                requiredText(request.title(), "作业单标题"),
+                blankToDefault(request.priority(), "P2"),
+                blankToDefault(request.status(), "待派工"),
+                emptyToDefault(request.steps(), List.of("确认安全隔离", "执行现场检查", "处理异常点", "试运行验收")),
+                emptyToDefault(request.spareParts(), List.of("常用工具", "PPE", "挂牌锁具")),
+                emptyToDefault(request.acceptanceCriteria(), List.of("异常现象消除", "试运行稳定", "记录归档")),
+                LocalDateTime.now()
+        );
+        tasks.add(task);
+        return task;
     }
 
     public List<String> listKnowledgeDocuments() {
@@ -376,13 +431,45 @@ public class MaintenanceService {
                 toMarkdownList(diagnosisResult.recommendedActions()),
                 diagnosisResult.generatedTask() == null ? "未生成" : diagnosisResult.generatedTask().title()
         );
-        ReportResult report = new ReportResult(reportId, "设备检修诊断报告", diagnosisResult.riskLevel(), sections, markdown, LocalDateTime.now());
+        String baseFileName = "report-" + reportId.toLowerCase(Locale.ROOT);
+        String markdownFileName = baseFileName + ".md";
+        String pdfFileName = baseFileName + ".pdf";
+        saveReportFiles(markdownFileName, pdfFileName, markdown);
+        ReportResult report = new ReportResult(
+                reportId,
+                "设备检修诊断报告",
+                diagnosisResult.riskLevel(),
+                sections,
+                markdown,
+                LocalDateTime.now(),
+                downloadUrl("file", markdownFileName),
+                downloadUrl("pdf", pdfFileName)
+        );
         reports.add(0, report);
         return report;
     }
 
     public List<ReportResult> listReports() {
         return reports.stream().limit(20).toList();
+    }
+
+    public TaskArchiveResult archiveTask(String taskId) {
+        MaintenanceTask task = tasks.stream()
+                .filter(item -> item.id().equals(taskId))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Task not found: " + taskId));
+        String baseFileName = "task-" + task.id().toLowerCase(Locale.ROOT);
+        String markdownFileName = baseFileName + ".md";
+        String pdfFileName = baseFileName + ".pdf";
+        String markdown = buildTaskArchiveMarkdown(task);
+        saveReportFiles(markdownFileName, pdfFileName, markdown);
+        return new TaskArchiveResult(
+                task.id(),
+                task.title(),
+                downloadUrl("file", markdownFileName),
+                downloadUrl("pdf", pdfFileName),
+                LocalDateTime.now()
+        );
     }
 
     private List<FaultCase> matchCases(InspectionRequest request) {
@@ -464,11 +551,119 @@ public class MaintenanceService {
         return keywords.stream().anyMatch(text::contains);
     }
 
+    private String requiredText(String value, String fieldName) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(fieldName + "不能为空");
+        }
+        return value.trim();
+    }
+
+    private String blankToDefault(String value, String defaultValue) {
+        return value == null || value.isBlank() ? defaultValue : value.trim();
+    }
+
+    private List<String> emptyToDefault(List<String> value, List<String> defaultValue) {
+        if (value == null || value.isEmpty()) {
+            return defaultValue;
+        }
+        return value.stream()
+                .filter(item -> item != null && !item.isBlank())
+                .map(String::trim)
+                .toList();
+    }
+
     private String toMarkdownList(List<String> items) {
         if (items == null || items.isEmpty()) {
             return "- 暂无";
         }
         return String.join("\n", items.stream().map(item -> "- " + item).toList());
+    }
+
+    private String buildTaskArchiveMarkdown(MaintenanceTask task) {
+        List<TaskFlowEvent> flows = taskFlowEvents.stream()
+                .filter(event -> event.taskId().equals(task.id()))
+                .sorted(Comparator.comparing(TaskFlowEvent::operatedAt))
+                .toList();
+        String flowMarkdown = flows.isEmpty()
+                ? "- 暂无流转记录"
+                : String.join("\n", flows.stream()
+                .map(event -> "- %s：%s -> %s，操作角色：%s，说明：%s".formatted(
+                        event.operatedAt(),
+                        event.fromStatus(),
+                        event.toStatus(),
+                        event.operatorRole(),
+                        event.note()
+                ))
+                .toList());
+        return """
+                # 检修作业单归档
+
+                ## 基本信息
+                - 作业单编号：%s
+                - 标题：%s
+                - 设备编号：%s
+                - 优先级：%s
+                - 当前状态：%s
+                - 创建时间：%s
+
+                ## 作业步骤
+                %s
+
+                ## 备件与工器具
+                %s
+
+                ## 验收标准
+                %s
+
+                ## 流转记录
+                %s
+
+                ## 归档建议
+                - 保存现场照片、测量数据、试运行记录和签字确认材料。
+                - 若状态未到“已归档”，建议完成验收或专家复核后再次归档。
+                """.formatted(
+                task.id(),
+                task.title(),
+                task.deviceId(),
+                task.priority(),
+                task.status(),
+                task.createdAt(),
+                toMarkdownList(task.steps()),
+                toMarkdownList(task.spareParts()),
+                toMarkdownList(task.acceptanceCriteria()),
+                flowMarkdown
+        );
+    }
+
+    private void saveReportFiles(String markdownFileName, String pdfFileName, String markdown) {
+        try {
+            Path root = Paths.get(FileConstant.FILE_SAVE_DIR).toAbsolutePath().normalize();
+            Path markdownPath = root.resolve("file").resolve(markdownFileName).normalize();
+            Path pdfPath = root.resolve("pdf").resolve(pdfFileName).normalize();
+            Files.createDirectories(markdownPath.getParent());
+            Files.createDirectories(pdfPath.getParent());
+            Files.writeString(markdownPath, markdown, StandardCharsets.UTF_8);
+            writePdf(pdfPath, markdown);
+        } catch (IOException e) {
+            throw new IllegalStateException("报告文件归档失败：" + e.getMessage(), e);
+        }
+    }
+
+    private void writePdf(Path pdfPath, String markdown) throws IOException {
+        try (PdfWriter writer = new PdfWriter(pdfPath.toFile());
+             PdfDocument pdf = new PdfDocument(writer);
+             Document document = new Document(pdf)) {
+            PdfFont font = PdfFontProvider.createChineseFont();
+            document.setFont(font);
+            for (String line : markdown.split("\\R", -1)) {
+                document.add(new Paragraph(line.isBlank() ? " " : line));
+            }
+        }
+    }
+
+    private String downloadUrl(String type, String fileName) {
+        String encodedName = URLEncoder.encode(fileName, StandardCharsets.UTF_8).replace("+", "%20");
+        return "/ai/manus/files/download?type=" + type + "&name=" + encodedName;
     }
 
     private void validateTransition(String fromStatus, String toStatus, String operatorRole) {

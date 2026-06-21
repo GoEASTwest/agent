@@ -113,7 +113,7 @@ public class AiController {
     }
 
     @GetMapping("/manus/files/download")
-    public ResponseEntity<UrlResource> downloadManusFile(String type, String name) throws IOException {
+    public ResponseEntity<UrlResource> downloadManusFile(String type, String name, Boolean inline) throws IOException {
         Path baseDir = resolveDownloadBaseDir(type);
         Path target = baseDir.resolve(name == null ? "" : name.replace('\\', '/')).normalize();
         if (!target.startsWith(baseDir) || !Files.isRegularFile(target)) {
@@ -128,7 +128,9 @@ public class AiController {
 
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(contentType))
-                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
+                .header(HttpHeaders.CONTENT_DISPOSITION, (Boolean.TRUE.equals(inline)
+                                ? ContentDisposition.inline()
+                                : ContentDisposition.attachment())
                         .filename(target.getFileName().toString())
                         .build()
                         .toString())

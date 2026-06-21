@@ -65,6 +65,41 @@
       </section>
 
       <section v-if="activeTab === 'devices'" class="cards-grid">
+        <form class="quick-form wide-card" @submit.prevent="createDevice">
+          <h3>新建设备</h3>
+          <label>
+            名称
+            <input v-model="deviceForm.name" placeholder="例如：循环水泵三号" />
+          </label>
+          <label>
+            类型
+            <select v-model="deviceForm.type">
+              <option>风机</option>
+              <option>泵</option>
+              <option>电机</option>
+              <option>齿轮箱</option>
+              <option>其他</option>
+            </select>
+          </label>
+          <label>
+            位置
+            <input v-model="deviceForm.location" placeholder="例如：动力站 C 区" />
+          </label>
+          <label>
+            风险
+            <select v-model="deviceForm.riskLevel">
+              <option>正常</option>
+              <option>关注</option>
+              <option>预警</option>
+              <option>严重</option>
+            </select>
+          </label>
+          <label class="wide">
+            监测项
+            <input v-model="deviceForm.sensorsText" placeholder="温度、振动、电流" />
+          </label>
+          <button class="primary-button" type="submit">添加设备</button>
+        </form>
         <article v-for="device in devices" :key="device.id" class="device-card">
           <div class="card-head">
             <span>{{ device.type }}</span>
@@ -271,6 +306,53 @@
       </section>
 
       <section v-if="activeTab === 'tasks'" class="tasks">
+        <form class="quick-form" @submit.prevent="createTask">
+          <h3>新建检修任务</h3>
+          <label>
+            设备
+            <select v-model="taskForm.deviceId">
+              <option v-for="device in devices" :key="device.id" :value="device.id">
+                {{ device.name }}（{{ device.id }}）
+              </option>
+            </select>
+          </label>
+          <label>
+            标题
+            <input v-model="taskForm.title" placeholder="例如：循环水泵入口压力波动复检" />
+          </label>
+          <label>
+            优先级
+            <select v-model="taskForm.priority">
+              <option>P1</option>
+              <option>P2</option>
+              <option>P3</option>
+              <option>P4</option>
+            </select>
+          </label>
+          <label>
+            状态
+            <select v-model="taskForm.status">
+              <option>待派工</option>
+              <option>处理中</option>
+              <option>待验收</option>
+              <option>专家复核</option>
+              <option>已归档</option>
+            </select>
+          </label>
+          <label class="wide">
+            作业步骤
+            <textarea v-model="taskForm.stepsText" placeholder="每行一条，例如：&#10;断电挂牌上锁&#10;复测振动和温度"></textarea>
+          </label>
+          <label class="wide">
+            备件工具
+            <input v-model="taskForm.sparePartsText" placeholder="红外测温仪、振动采集仪、挂牌锁具" />
+          </label>
+          <label class="wide">
+            验收标准
+            <textarea v-model="taskForm.acceptanceText" placeholder="每行一条，例如：&#10;异常参数回落&#10;试运行 30 分钟无异常"></textarea>
+          </label>
+          <button class="primary-button" type="submit">创建任务</button>
+        </form>
         <article v-for="task in tasks" :key="task.id" class="task-card">
           <div class="card-head">
             <span>{{ task.id }}</span>
@@ -300,6 +382,27 @@
             >
               {{ flow.status }}
             </button>
+            <button @click="archiveTask(task)">归档作业单</button>
+          </div>
+          <div v-if="taskArchives[task.id]" class="task-archive">
+            <span>已生成归档文件</span>
+            <a
+              v-if="taskArchives[task.id].markdownDownloadUrl"
+              :href="apiDownloadUrl(taskArchives[task.id].markdownDownloadUrl)"
+              target="_blank"
+              rel="noopener"
+            >
+              Markdown
+            </a>
+            <a
+              v-if="taskArchives[task.id].pdfDownloadUrl"
+              :href="apiInlineUrl(taskArchives[task.id].pdfDownloadUrl)"
+              target="_blank"
+              rel="noopener"
+            >
+              PDF
+            </a>
+            <router-link to="/files">文件中心</router-link>
           </div>
         </article>
       </section>
@@ -358,7 +461,30 @@
           <div class="chips">
             <i v-for="section in report.sections" :key="section">{{ section }}</i>
           </div>
-          <button class="ghost-button" @click="downloadMarkdown(report)">下载报告</button>
+          <div class="report-actions">
+            <a
+              v-if="report.markdownDownloadUrl"
+              class="ghost-link"
+              :href="apiDownloadUrl(report.markdownDownloadUrl)"
+              target="_blank"
+              rel="noopener"
+            >
+              下载 Markdown
+            </a>
+            <a
+              v-if="report.pdfDownloadUrl"
+              class="ghost-link"
+              :href="apiInlineUrl(report.pdfDownloadUrl)"
+              target="_blank"
+              rel="noopener"
+            >
+              打开 PDF
+            </a>
+            <button v-if="!report.markdownDownloadUrl" class="ghost-button" @click="downloadMarkdown(report)">
+              下载报告
+            </button>
+            <router-link class="ghost-link" to="/files">文件中心</router-link>
+          </div>
         </article>
       </section>
 
@@ -558,7 +684,24 @@ export default {
       modules: fallbackModules,
       cases: fallbackCases,
       tasks: [],
+      deviceForm: {
+        name: '循环水泵三号',
+        type: '泵',
+        location: '动力站 C 区',
+        riskLevel: '关注',
+        sensorsText: '入口压力、出口压力、振动、温度'
+      },
+      taskForm: {
+        deviceId: 'DEV-MOTOR-03',
+        title: '主电机接线端子复检',
+        priority: 'P2',
+        status: '待派工',
+        stepsText: '断电挂牌上锁\n复测温度和电流\n检查接线端子焦痕\n清理散热通道\n试运行验收',
+        sparePartsText: '红外测温仪、万用表、绝缘手套、挂牌锁具',
+        acceptanceText: '温度回落至关注阈值以下\n三相电流平衡\n无焦味和异常噪声\n检修记录归档'
+      },
       taskFlowEvents: [],
+      taskArchives: {},
       knowledgeDocs: [
         'paper1.md - 正常运行状态诊断知识',
         'paper2.md - 早期故障诊断知识',
@@ -699,6 +842,69 @@ export default {
         features.push(feature);
       }
     },
+    async createDevice() {
+      const payload = {
+        name: this.deviceForm.name,
+        type: this.deviceForm.type,
+        location: this.deviceForm.location,
+        status: '运行',
+        riskLevel: this.deviceForm.riskLevel,
+        sensors: this.parseListInput(this.deviceForm.sensorsText),
+        lastInspectionTime: this.formatTime(new Date().toISOString())
+      };
+      try {
+        const device = await this.fetchJson('/maintenance/devices', {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
+        this.devices = [device, ...this.devices.filter((item) => item.id !== device.id)];
+        this.taskForm.deviceId = device.id;
+        this.inspection.deviceId = device.id;
+        this.inspection.deviceType = device.type;
+        this.backendOnline = true;
+      } catch (error) {
+        this.backendOnline = false;
+        const device = {
+          id: `DEV-DEMO-${Date.now().toString().slice(-4)}`,
+          ...payload
+        };
+        this.devices = [device, ...this.devices];
+        this.taskForm.deviceId = device.id;
+      }
+    },
+    async createTask() {
+      const payload = {
+        deviceId: this.taskForm.deviceId,
+        title: this.taskForm.title,
+        priority: this.taskForm.priority,
+        status: this.taskForm.status,
+        steps: this.parseListInput(this.taskForm.stepsText),
+        spareParts: this.parseListInput(this.taskForm.sparePartsText),
+        acceptanceCriteria: this.parseListInput(this.taskForm.acceptanceText)
+      };
+      try {
+        const task = await this.fetchJson('/maintenance/tasks', {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
+        this.tasks = [task, ...this.tasks.filter((item) => item.id !== task.id)];
+        this.backendOnline = true;
+      } catch (error) {
+        this.backendOnline = false;
+        const task = {
+          id: `TASK-DEMO-${Date.now().toString().slice(-4)}`,
+          ...payload,
+          createdAt: new Date().toISOString()
+        };
+        this.tasks = [task, ...this.tasks];
+      }
+    },
+    parseListInput(value) {
+      return String(value || '')
+        .split(/[\n,，、]/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+    },
     async runDiagnosis() {
       try {
         this.diagnosis = await this.fetchJson('/maintenance/diagnose', {
@@ -806,6 +1012,51 @@ export default {
         ];
       }
     },
+    async archiveTask(task) {
+      try {
+        const archive = await this.fetchJson(`/maintenance/tasks/${task.id}/archive`, {
+          method: 'POST'
+        });
+        this.taskArchives = { ...this.taskArchives, [task.id]: archive };
+        this.backendOnline = true;
+      } catch (error) {
+        this.backendOnline = false;
+        const markdown = this.buildTaskArchiveMarkdown(task);
+        this.saveMarkdownBlob(markdown, `${task.id}.md`);
+        this.taskArchives = {
+          ...this.taskArchives,
+          [task.id]: {
+            taskId: task.id,
+            title: task.title,
+            markdownDownloadUrl: '',
+            pdfDownloadUrl: '',
+            archivedAt: new Date().toISOString()
+          }
+        };
+      }
+    },
+    buildTaskArchiveMarkdown(task) {
+      return [
+        '# 检修作业单归档',
+        '',
+        '## 基本信息',
+        `- 作业单编号：${task.id}`,
+        `- 标题：${task.title}`,
+        `- 设备编号：${task.deviceId}`,
+        `- 优先级：${task.priority}`,
+        `- 当前状态：${task.status}`,
+        `- 创建时间：${task.createdAt || '刚刚生成'}`,
+        '',
+        '## 作业步骤',
+        ...task.steps.map((item) => `- ${item}`),
+        '',
+        '## 备件与工器具',
+        ...task.spareParts.map((item) => `- ${item}`),
+        '',
+        '## 验收标准',
+        ...task.acceptanceCriteria.map((item) => `- ${item}`)
+      ].join('\n');
+    },
     localDiagnosis() {
       const score = Math.min(100,
         (this.inspection.temperature >= 85 ? 35 : 18)
@@ -884,26 +1135,37 @@ export default {
           riskLevel: this.diagnosis.riskLevel,
           sections: ['风险结论', '证据链', '可能原因', '检修作业建议'],
           markdown: localMarkdown,
-          generatedAt: new Date().toISOString()
+          generatedAt: new Date().toISOString(),
+          markdownDownloadUrl: '',
+          pdfDownloadUrl: ''
         };
         this.reports = [report, ...this.reports.filter((item) => item.reportId !== report.reportId)];
       }
-      const blob = new Blob([markdown || localMarkdown], { type: 'text/markdown;charset=utf-8' });
+      const latestReport = this.reports[0];
+      if (latestReport?.markdownDownloadUrl) {
+        window.open(this.apiDownloadUrl(latestReport.markdownDownloadUrl), '_blank', 'noopener');
+      } else {
+        this.saveMarkdownBlob(markdown || localMarkdown, 'maintenance-report.md');
+      }
+    },
+    downloadMarkdown(report) {
+      this.saveMarkdownBlob(report.markdown, `${report.reportId}.md`);
+    },
+    saveMarkdownBlob(markdown, fileName) {
+      const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = 'maintenance-report.md';
+      link.download = fileName;
       link.click();
       URL.revokeObjectURL(url);
     },
-    downloadMarkdown(report) {
-      const blob = new Blob([report.markdown], { type: 'text/markdown;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${report.reportId}.md`;
-      link.click();
-      URL.revokeObjectURL(url);
+    apiDownloadUrl(path) {
+      return apiUrl(path);
+    },
+    apiInlineUrl(path) {
+      const separator = path.includes('?') ? '&' : '?';
+      return apiUrl(`${path}${separator}inline=true`);
     },
     formatTime(value) {
       if (!value) return '刚刚生成';
@@ -1040,6 +1302,7 @@ nav button.active {
 }
 
 .ghost-button,
+.ghost-link,
 .primary-button,
 .chat-input button {
   min-height: 42px;
@@ -1053,6 +1316,17 @@ nav button.active {
   background: #ffffff;
   color: #15241e;
   padding: 0 16px;
+}
+
+.ghost-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #c7d4ce;
+  background: #ffffff;
+  color: #15241e;
+  padding: 0 16px;
+  text-decoration: none;
 }
 
 .primary-button {
@@ -1128,6 +1402,7 @@ nav button.active {
 .knowledge-card,
 .diagnosis-result,
 .task-card,
+.quick-form,
 .diagnose-form,
 .chat-layout {
   border: 1px solid #d4dfd9;
@@ -1206,6 +1481,22 @@ nav button.active {
 .case-card,
 .task-card {
   padding: 20px;
+}
+
+.quick-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  padding: 20px;
+}
+
+.quick-form h3 {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.quick-form.wide-card {
+  grid-column: 1 / -1;
 }
 
 .card-head,
@@ -1409,6 +1700,13 @@ li {
   line-height: 1.7;
 }
 
+.report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
 .empty-state {
   grid-column: 1 / -1;
 }
@@ -1458,6 +1756,35 @@ li {
   border-radius: 6px;
   background: #f8fbf9;
   cursor: pointer;
+}
+
+.task-archive {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e4ece7;
+}
+
+.task-archive span {
+  color: #2b7c5a;
+  font-weight: 900;
+}
+
+.task-archive a {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #c7d4ce;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #15241e;
+  padding: 0 12px;
+  font-weight: 800;
+  text-decoration: none;
 }
 
 .chat-layout {
@@ -1538,6 +1865,7 @@ li {
   .reports,
   .knowledge-grid,
   .case-card,
+  .quick-form,
   .diagnose-form,
   .task-columns {
     grid-template-columns: 1fr;

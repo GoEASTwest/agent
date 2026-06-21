@@ -9,6 +9,8 @@ public record ReportResult(
         String riskLevel,
         List<String> sections,
         String markdown,
-        LocalDateTime generatedAt
+        LocalDateTime generatedAt,
+        String markdownDownloadUrl,
+        String pdfDownloadUrl
 ) {
 }

@@ -10,7 +10,7 @@
         <div>
           <p>Agent Files</p>
           <h1>检修文件中心</h1>
-          <span>集中查看工具智能体生成的 Markdown、PDF 和下载资源。</span>
+          <span>集中查看、预览和下载工具智能体生成的 Markdown、PDF 与下载资源。</span>
         </div>
         <button type="button" @click="loadFiles" :disabled="loading">
           {{ loading ? '刷新中' : '刷新文件' }}
@@ -26,31 +26,76 @@
         </article>
       </div>
 
+      <section class="toolbar">
+        <label>
+          <span>搜索文件</span>
+          <input v-model.trim="searchText" placeholder="输入文件名关键词" />
+        </label>
+        <label>
+          <span>排序方式</span>
+          <select v-model="sortMode">
+            <option value="modified-desc">最新优先</option>
+            <option value="modified-asc">最早优先</option>
+            <option value="name-asc">名称 A-Z</option>
+            <option value="size-desc">文件从大到小</option>
+          </select>
+        </label>
+      </section>
+
       <section v-if="error" class="notice error">
         {{ error }}
       </section>
 
-      <section v-else-if="!loading && !filteredFiles.length" class="notice">
-        <h2>暂无文件</h2>
-        <p>到工具智能体页面输入“生成一个水泵日常检修 checklist 并生成 PDF”，完成后回到这里刷新。</p>
+      <section v-else-if="!loading && !visibleFiles.length" class="notice">
+        <h2>暂无匹配文件</h2>
+        <p>可以调整筛选条件，或到工具智能体页面生成一份检修规程和 PDF。</p>
         <router-link to="/manus">去生成文件</router-link>
       </section>
 
-      <section v-else class="file-grid">
-        <article v-for="file in filteredFiles" :key="file.type + file.name" class="file-card">
-          <div class="file-top">
-            <span>{{ typeLabel(file.type) }}</span>
-            <strong>{{ formatBytes(file.size) }}</strong>
+      <section v-else class="workspace">
+        <div class="file-grid">
+          <article
+            v-for="file in visibleFiles"
+            :key="file.type + file.name"
+            :class="['file-card', { selected: selectedFileKey === file.type + file.name }]"
+          >
+            <div class="file-top">
+              <span>{{ typeLabel(file.type) }}</span>
+              <strong>{{ formatBytes(file.size) }}</strong>
+            </div>
+            <h2 :title="file.name">{{ file.name }}</h2>
+            <p>{{ formatTime(file.modifiedAt) }}</p>
+            <div class="file-actions">
+              <button v-if="file.type === 'file'" type="button" @click="previewMarkdown(file)">
+                预览
+              </button>
+              <a v-else :href="inlineUrl(file)" target="_blank" rel="noopener">打开</a>
+              <a :href="downloadUrl(file)" target="_blank" rel="noopener">下载</a>
+              <button type="button" @click="copyLink(file)">
+                {{ copiedKey === file.type + file.name ? '已复制' : '复制链接' }}
+              </button>
+            </div>
+          </article>
+        </div>
+
+        <aside class="preview-panel">
+          <div v-if="selectedFile" class="preview-head">
+            <div>
+              <span>{{ typeLabel(selectedFile.type) }}</span>
+              <h2>{{ selectedFile.name }}</h2>
+              <p>{{ formatTime(selectedFile.modifiedAt) }} · {{ formatBytes(selectedFile.size) }}</p>
+            </div>
+            <a :href="downloadUrl(selectedFile)" target="_blank" rel="noopener">下载</a>
           </div>
-          <h2 :title="file.name">{{ file.name }}</h2>
-          <p>{{ formatTime(file.modifiedAt) }}</p>
-          <div class="file-actions">
-            <a :href="downloadUrl(file)" target="_blank" rel="noopener">下载</a>
-            <button type="button" @click="copyLink(file)">
-              {{ copiedKey === file.type + file.name ? '已复制' : '复制链接' }}
-            </button>
+
+          <div v-if="previewLoading" class="preview-empty">正在读取预览内容...</div>
+          <div v-else-if="previewError" class="preview-empty error">{{ previewError }}</div>
+          <MarkdownMessage v-else-if="selectedFile && previewContent" :content="previewContent" />
+          <div v-else class="preview-empty">
+            <h2>选择一份 Markdown 文件预览</h2>
+            <p>PDF 和其他资源可直接点击“打开”在浏览器中查看。</p>
           </div>
-        </article>
+        </aside>
       </section>
     </section>
   </main>
@@ -58,24 +103,51 @@
 
 <script>
 import { apiUrl, fetchJson } from '../api';
+import MarkdownMessage from '../components/MarkdownMessage.vue';
 
 export default {
   name: 'FileCenter',
+  components: {
+    MarkdownMessage
+  },
   data() {
     return {
       files: [],
       activeType: 'all',
+      searchText: '',
+      sortMode: 'modified-desc',
       loading: false,
       error: '',
-      copiedKey: ''
+      copiedKey: '',
+      selectedFile: null,
+      previewContent: '',
+      previewLoading: false,
+      previewError: ''
     };
   },
   computed: {
-    filteredFiles() {
-      if (this.activeType === 'all') {
-        return this.files;
-      }
-      return this.files.filter((file) => file.type === this.activeType);
+    selectedFileKey() {
+      return this.selectedFile ? this.selectedFile.type + this.selectedFile.name : '';
+    },
+    visibleFiles() {
+      const keyword = this.searchText.toLowerCase();
+      const filtered = this.files.filter((file) => {
+        const typeMatched = this.activeType === 'all' || file.type === this.activeType;
+        const keywordMatched = !keyword || file.name.toLowerCase().includes(keyword);
+        return typeMatched && keywordMatched;
+      });
+      return [...filtered].sort((a, b) => {
+        if (this.sortMode === 'modified-asc') {
+          return new Date(a.modifiedAt) - new Date(b.modifiedAt);
+        }
+        if (this.sortMode === 'name-asc') {
+          return a.name.localeCompare(b.name);
+        }
+        if (this.sortMode === 'size-desc') {
+          return b.size - a.size;
+        }
+        return new Date(b.modifiedAt) - new Date(a.modifiedAt);
+      });
     },
     summary() {
       const count = (type) => this.files.filter((file) => file.type === type).length;
@@ -104,6 +176,27 @@ export default {
     },
     downloadUrl(file) {
       return apiUrl(file.downloadUrl);
+    },
+    inlineUrl(file) {
+      const separator = file.downloadUrl.includes('?') ? '&' : '?';
+      return apiUrl(`${file.downloadUrl}${separator}inline=true`);
+    },
+    async previewMarkdown(file) {
+      this.selectedFile = file;
+      this.previewContent = '';
+      this.previewError = '';
+      this.previewLoading = true;
+      try {
+        const response = await fetch(this.inlineUrl(file));
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        this.previewContent = await response.text();
+      } catch (error) {
+        this.previewError = `预览读取失败：${error.message || error}`;
+      } finally {
+        this.previewLoading = false;
+      }
     },
     typeLabel(type) {
       return {
@@ -173,7 +266,7 @@ export default {
 }
 
 .file-shell {
-  max-width: 1120px;
+  max-width: 1280px;
   margin: 0 auto;
 }
 
@@ -210,7 +303,8 @@ export default {
 .page-head button,
 .file-actions button,
 .file-actions a,
-.notice a {
+.notice a,
+.preview-head a {
   min-height: 40px;
   display: inline-flex;
   align-items: center;
@@ -268,6 +362,32 @@ export default {
   font-size: 30px;
 }
 
+.toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.toolbar label {
+  display: grid;
+  gap: 7px;
+  color: #52655b;
+  font-weight: 800;
+}
+
+.toolbar input,
+.toolbar select {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid #c7d4ce;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #14231d;
+  padding: 0 12px;
+  font: inherit;
+}
+
 .notice {
   border: 1px solid #d4dfd9;
   border-radius: 8px;
@@ -291,14 +411,22 @@ export default {
   padding: 0 16px;
 }
 
-.notice.error {
+.notice.error,
+.preview-empty.error {
   border-color: #efb7b7;
   color: #9f1d1d;
 }
 
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(360px, 0.8fr);
+  gap: 16px;
+  align-items: start;
+}
+
 .file-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -313,6 +441,11 @@ export default {
   box-shadow: 0 12px 34px rgba(16, 35, 29, 0.08);
 }
 
+.file-card.selected {
+  border-color: #1f6f53;
+  box-shadow: 0 0 0 3px rgba(31, 111, 83, 0.12);
+}
+
 .file-top {
   display: flex;
   justify-content: space-between;
@@ -320,7 +453,8 @@ export default {
   align-items: center;
 }
 
-.file-top span {
+.file-top span,
+.preview-head span {
   border-radius: 99px;
   background: #edf3ef;
   color: #1f6f53;
@@ -354,7 +488,10 @@ export default {
   padding-top: 18px;
 }
 
-.file-actions a {
+.file-actions a,
+.file-actions button:first-child,
+.preview-head a {
+  border: 0;
   background: #1f6f53;
   color: #ffffff;
   padding: 0 14px;
@@ -367,22 +504,79 @@ export default {
   padding: 0 14px;
 }
 
-@media (max-width: 900px) {
+.preview-panel {
+  position: sticky;
+  top: 18px;
+  max-height: calc(100vh - 36px);
+  overflow: auto;
+  border: 1px solid #d4dfd9;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 18px;
+  box-shadow: 0 12px 34px rgba(16, 35, 29, 0.08);
+}
+
+.preview-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+  border-bottom: 1px solid #e2eae5;
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+}
+
+.preview-head h2 {
+  margin: 10px 0 6px;
+  font-size: 20px;
+  word-break: break-word;
+}
+
+.preview-head p {
+  margin: 0;
+  color: #65756e;
+  line-height: 1.5;
+}
+
+.preview-empty {
+  border: 1px dashed #c7d4ce;
+  border-radius: 8px;
+  padding: 24px;
+  color: #65756e;
+  line-height: 1.7;
+}
+
+.preview-empty h2 {
+  margin: 0 0 10px;
+  color: #14231d;
+}
+
+.preview-empty p {
+  margin: 0;
+}
+
+@media (max-width: 1080px) {
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .preview-panel {
+    position: static;
+    max-height: none;
+  }
+}
+
+@media (max-width: 760px) {
   .summary-row,
+  .toolbar,
   .file-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 620px) {
   .file-page {
     padding: 20px;
-  }
-
-  .page-head,
-  .summary-row,
-  .file-grid {
-    grid-template-columns: 1fr;
   }
 
   .page-head {
