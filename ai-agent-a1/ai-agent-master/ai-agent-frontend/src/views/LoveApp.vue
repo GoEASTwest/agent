@@ -438,15 +438,140 @@
         </article>
       </section>
 
-      <section v-if="activeTab === 'knowledge'" class="knowledge-grid">
+      <section v-if="activeTab === 'knowledge'" class="knowledge-workbench">
+        <form class="quick-form" @submit.prevent="submitKnowledge">
+          <h3>提交检修经验</h3>
+          <label>
+            标题
+            <input v-model="knowledgeForm.title" placeholder="例如：主电机端子过热处理经验" />
+          </label>
+          <label>
+            设备类型
+            <select v-model="knowledgeForm.deviceType">
+              <option>风机</option>
+              <option>泵</option>
+              <option>电机</option>
+              <option>齿轮箱</option>
+              <option>其他</option>
+            </select>
+          </label>
+          <label>
+            故障名称
+            <input v-model="knowledgeForm.faultName" placeholder="例如：端子松动过热" />
+          </label>
+          <label>
+            提交人
+            <input v-model="knowledgeForm.submitter" placeholder="例如：巡检员李工" />
+          </label>
+          <label class="wide">
+            典型症状
+            <input v-model="knowledgeForm.symptomsText" placeholder="焦味、外壳高温、电流异常" />
+          </label>
+          <label class="wide">
+            图片特征
+            <input v-model="knowledgeForm.imageFeaturesText" placeholder="焦痕、变色、绝缘破损" />
+          </label>
+          <label class="wide">
+            原因分析
+            <textarea v-model="knowledgeForm.cause"></textarea>
+          </label>
+          <label class="wide">
+            处理方案
+            <textarea v-model="knowledgeForm.solution"></textarea>
+          </label>
+          <label class="wide">
+            现场经验
+            <textarea v-model="knowledgeForm.content"></textarea>
+          </label>
+          <button class="primary-button" type="submit">提交待审核</button>
+        </form>
+
+        <div class="knowledge-review-list">
+          <article v-for="item in knowledgeContributions" :key="item.id" class="knowledge-card">
+            <div class="card-head">
+              <span>{{ item.status }}</span>
+              <strong>{{ item.id }}</strong>
+            </div>
+            <h3>{{ item.title }}</h3>
+            <p>{{ item.deviceType }} · {{ item.faultName }}</p>
+            <div class="chips">
+              <i v-for="feature in item.imageFeatures" :key="feature">{{ feature }}</i>
+            </div>
+            <p>{{ item.reviewNote }}</p>
+            <div class="report-actions">
+              <button v-if="item.status === '待审核'" class="ghost-button" @click="reviewKnowledge(item, '已通过')">
+                审核通过
+              </button>
+              <button v-if="item.status === '待审核'" class="ghost-button" @click="reviewKnowledge(item, '已驳回')">
+                驳回
+              </button>
+              <a
+                v-if="item.markdownDownloadUrl"
+                class="ghost-link"
+                :href="apiDownloadUrl(item.markdownDownloadUrl)"
+                target="_blank"
+                rel="noopener"
+              >
+                Markdown
+              </a>
+              <a
+                v-if="item.pdfDownloadUrl"
+                class="ghost-link"
+                :href="apiInlineUrl(item.pdfDownloadUrl)"
+                target="_blank"
+                rel="noopener"
+              >
+                PDF
+              </a>
+            </div>
+          </article>
+        </div>
+
         <article v-for="doc in knowledgeDocs" :key="doc" class="knowledge-card">
-          <span>RAG Document</span>
+          <span>Knowledge Source</span>
           <h3>{{ doc.split(' - ')[0] }}</h3>
           <p>{{ doc.split(' - ')[1] || '设备检修知识文档' }}</p>
         </article>
       </section>
 
       <section v-if="activeTab === 'reports'" class="reports">
+        <form class="quick-form wide-card" @submit.prevent="submitReportCorrection">
+          <h3>专家修正 AI 输出</h3>
+          <label>
+            原报告编号
+            <input v-model="correctionForm.reportId" placeholder="可填写 RPT 编号，也可留空" />
+          </label>
+          <label>
+            修正风险
+            <select v-model="correctionForm.correctedRiskLevel">
+              <option>正常</option>
+              <option>关注</option>
+              <option>预警</option>
+              <option>严重</option>
+            </select>
+          </label>
+          <label>
+            复核人
+            <input v-model="correctionForm.reviewer" placeholder="专家姓名" />
+          </label>
+          <label class="wide">
+            修正证据
+            <textarea v-model="correctionForm.evidenceText"></textarea>
+          </label>
+          <label class="wide">
+            修正原因
+            <textarea v-model="correctionForm.causesText"></textarea>
+          </label>
+          <label class="wide">
+            修正措施
+            <textarea v-model="correctionForm.actionsText"></textarea>
+          </label>
+          <label class="wide">
+            复核说明
+            <textarea v-model="correctionForm.reviewNote"></textarea>
+          </label>
+          <button class="primary-button" type="submit">归档修正记录</button>
+        </form>
         <article v-if="!reports.length" class="empty-state">
           <h3>暂无已归档报告</h3>
           <p>在“多模态诊断”里生成诊断结果并点击导出报告后，这里会沉淀报告记录。</p>
@@ -579,6 +704,27 @@ const fallbackCases = [
   }
 ];
 
+const fallbackKnowledgeContributions = [
+  {
+    id: 'KC-1001',
+    title: '主电机端子过热经验',
+    deviceType: '电机',
+    faultName: '绕组过热与绝缘下降',
+    symptoms: ['外壳高温', '电流异常', '焦味'],
+    imageFeatures: ['焦痕', '变色', '绝缘破损'],
+    cause: '端子松动、散热不良或绝缘老化会导致局部发热并产生焦味',
+    solution: '停机断电后复紧端子，测量绝缘电阻，清理散热通道并做空载试运行',
+    content: '端子发黑时不要只更换胶带，应同步检查压接力矩、三相电流平衡和端子排温升。',
+    submitter: '巡检员张工',
+    status: '已通过',
+    reviewNote: '专家复核通过，已纳入案例库',
+    createdAt: '2026-06-20T09:20:00',
+    reviewedAt: '2026-06-20T10:30:00',
+    markdownDownloadUrl: '',
+    pdfDownloadUrl: ''
+  }
+];
+
 const fallbackRoles = [
   {
     id: 'inspector',
@@ -708,6 +854,18 @@ export default {
         'paper3.md - 严重故障诊断知识',
         'maintenance_workflow.md - 检修作业闭环知识'
       ],
+      knowledgeContributions: fallbackKnowledgeContributions,
+      knowledgeForm: {
+        title: '主电机端子过热处理经验',
+        deviceType: '电机',
+        faultName: '端子松动过热',
+        submitter: '巡检员李工',
+        symptomsText: '焦味、外壳高温、电流异常',
+        imageFeaturesText: '焦痕、变色、绝缘破损',
+        cause: '端子压接松动导致接触电阻增大，局部温升后引发绝缘老化。',
+        solution: '停机断电，复紧端子并测量绝缘电阻，清理散热通道，试运行后复测三相电流。',
+        content: '现场发现端子排发黑时，应同时检查压接力矩、端子温升和三相电流平衡，避免只做表面清理。'
+      },
       completionItems: [
         { module: '前端工作台', status: '已实现', percent: 95, result: '核心页面可演示', nextStep: '补充录屏素材' },
         { module: '检修业务后端', status: '已实现', percent: 90, result: '业务接口可调用', nextStep: '接入数据库' },
@@ -715,6 +873,15 @@ export default {
         { module: '工程部署', status: '演示可用', percent: 70, result: '启动脚本与环境模板已整理', nextStep: '补充构建验证' }
       ],
       reports: [],
+      correctionForm: {
+        reportId: '',
+        correctedRiskLevel: '预警',
+        reviewer: '专家王工',
+        evidenceText: '端子温升复测仍偏高\n三相电流存在轻微不平衡\n照片显示端子局部变色',
+        causesText: '端子压接松动可能性较高\n散热通道积尘加重局部温升',
+        actionsText: '复紧端子并做绝缘电阻测试\n清理散热风道\n试运行 30 分钟后复测温升',
+        reviewNote: '专家修正后建议将风险从严重调整为预警，并纳入案例复盘。'
+      },
       diagnosis: null,
       imageAnalysis: null,
       inspection: {
@@ -783,7 +950,7 @@ export default {
   methods: {
     async loadAll() {
       try {
-        const [dashboard, devices, roles, modules, cases, tasks, flows, completion, reports] = await Promise.all([
+        const [dashboard, devices, roles, modules, cases, tasks, flows, completion, reports, contributions] = await Promise.all([
           this.fetchJson('/maintenance/dashboard'),
           this.fetchJson('/maintenance/devices'),
           this.fetchJson('/maintenance/roles'),
@@ -792,7 +959,8 @@ export default {
           this.fetchJson('/maintenance/tasks'),
           this.fetchJson('/maintenance/tasks/flow'),
           this.fetchJson('/maintenance/completion'),
-          this.fetchJson('/maintenance/reports')
+          this.fetchJson('/maintenance/reports'),
+          this.fetchJson('/maintenance/knowledge/contributions')
         ]);
         const knowledgeDocs = await this.fetchJson('/maintenance/knowledge');
         this.dashboard = dashboard;
@@ -805,6 +973,7 @@ export default {
         this.knowledgeDocs = knowledgeDocs;
         this.completionItems = completion;
         this.reports = reports;
+        this.knowledgeContributions = contributions;
         this.backendOnline = true;
       } catch (error) {
         this.backendOnline = false;
@@ -813,6 +982,7 @@ export default {
         this.roles = fallbackRoles;
         this.modules = fallbackModules;
         this.cases = fallbackCases;
+        this.knowledgeContributions = this.knowledgeContributions.length ? this.knowledgeContributions : fallbackKnowledgeContributions;
         this.tasks = this.tasks.length ? this.tasks : [this.mockTask()];
       }
     },
@@ -904,6 +1074,85 @@ export default {
         .split(/[\n,，、]/)
         .map((item) => item.trim())
         .filter(Boolean);
+    },
+    async submitKnowledge() {
+      const payload = {
+        title: this.knowledgeForm.title,
+        deviceType: this.knowledgeForm.deviceType,
+        faultName: this.knowledgeForm.faultName,
+        submitter: this.knowledgeForm.submitter,
+        symptoms: this.parseListInput(this.knowledgeForm.symptomsText),
+        imageFeatures: this.parseListInput(this.knowledgeForm.imageFeaturesText),
+        cause: this.knowledgeForm.cause,
+        solution: this.knowledgeForm.solution,
+        content: this.knowledgeForm.content
+      };
+      try {
+        const contribution = await this.fetchJson('/maintenance/knowledge/contributions', {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
+        this.knowledgeContributions = [contribution, ...this.knowledgeContributions.filter((item) => item.id !== contribution.id)];
+        this.backendOnline = true;
+      } catch (error) {
+        this.backendOnline = false;
+        const contribution = {
+          id: `KC-DEMO-${Date.now().toString().slice(-4)}`,
+          ...payload,
+          status: '待审核',
+          reviewNote: '等待专家审核',
+          createdAt: new Date().toISOString(),
+          reviewedAt: null,
+          markdownDownloadUrl: '',
+          pdfDownloadUrl: ''
+        };
+        this.knowledgeContributions = [contribution, ...this.knowledgeContributions];
+      }
+    },
+    async reviewKnowledge(item, status) {
+      const payload = {
+        status,
+        reviewNote: status === '已通过' ? '专家审核通过，已纳入案例库' : '专家驳回，需补充现场证据'
+      };
+      try {
+        const reviewed = await this.fetchJson(`/maintenance/knowledge/contributions/${item.id}/review`, {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
+        this.knowledgeContributions = this.knowledgeContributions.map((contribution) => (
+          contribution.id === reviewed.id ? reviewed : contribution
+        ));
+        this.cases = await this.fetchJson('/maintenance/cases');
+        this.knowledgeDocs = await this.fetchJson('/maintenance/knowledge');
+        this.backendOnline = true;
+      } catch (error) {
+        this.backendOnline = false;
+        const reviewed = {
+          ...item,
+          status,
+          reviewNote: payload.reviewNote,
+          reviewedAt: new Date().toISOString()
+        };
+        this.knowledgeContributions = this.knowledgeContributions.map((contribution) => (
+          contribution.id === item.id ? reviewed : contribution
+        ));
+        if (status === '已通过' && !this.cases.some((faultCase) => faultCase.faultName === item.faultName)) {
+          this.cases = [
+            {
+              id: `CASE-DEMO-${Date.now().toString().slice(-4)}`,
+              deviceType: item.deviceType,
+              faultName: item.faultName,
+              symptoms: item.symptoms,
+              imageFeatures: item.imageFeatures,
+              cause: item.cause,
+              solution: item.solution,
+              severity: 3
+            },
+            ...this.cases
+          ];
+          this.knowledgeDocs = [`${item.id} - ${item.title}`, ...this.knowledgeDocs];
+        }
+      }
     },
     async runDiagnosis() {
       try {
@@ -1108,6 +1357,8 @@ export default {
         });
         markdown = report.markdown;
         this.reports = [report, ...this.reports.filter((item) => item.reportId !== report.reportId)];
+        this.correctionForm.reportId = report.reportId;
+        this.correctionForm.correctedRiskLevel = report.riskLevel;
         this.backendOnline = true;
       } catch (error) {
         this.backendOnline = false;
@@ -1140,12 +1391,67 @@ export default {
           pdfDownloadUrl: ''
         };
         this.reports = [report, ...this.reports.filter((item) => item.reportId !== report.reportId)];
+        this.correctionForm.reportId = report.reportId;
+        this.correctionForm.correctedRiskLevel = report.riskLevel;
       }
       const latestReport = this.reports[0];
       if (latestReport?.markdownDownloadUrl) {
         window.open(this.apiDownloadUrl(latestReport.markdownDownloadUrl), '_blank', 'noopener');
       } else {
         this.saveMarkdownBlob(markdown || localMarkdown, 'maintenance-report.md');
+      }
+    },
+    async submitReportCorrection() {
+      const payload = {
+        reportId: this.correctionForm.reportId,
+        correctedRiskLevel: this.correctionForm.correctedRiskLevel,
+        reviewer: this.correctionForm.reviewer,
+        correctedEvidence: this.parseListInput(this.correctionForm.evidenceText),
+        correctedCauses: this.parseListInput(this.correctionForm.causesText),
+        correctedActions: this.parseListInput(this.correctionForm.actionsText),
+        reviewNote: this.correctionForm.reviewNote
+      };
+      try {
+        const report = await this.fetchJson('/maintenance/reports/corrections', {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
+        this.reports = [report, ...this.reports.filter((item) => item.reportId !== report.reportId)];
+        this.backendOnline = true;
+      } catch (error) {
+        this.backendOnline = false;
+        const markdown = [
+          '# AI 诊断结果专家修正记录',
+          '',
+          `- 原报告编号：${payload.reportId || '未填写'}`,
+          `- 复核人：${payload.reviewer}`,
+          `- 修正后风险等级：${payload.correctedRiskLevel}`,
+          '',
+          '## 修正证据',
+          ...payload.correctedEvidence.map((item) => `- ${item}`),
+          '',
+          '## 修正原因',
+          ...payload.correctedCauses.map((item) => `- ${item}`),
+          '',
+          '## 修正措施',
+          ...payload.correctedActions.map((item) => `- ${item}`),
+          '',
+          '## 复核说明',
+          payload.reviewNote
+        ].join('\n');
+        this.reports = [
+          {
+            reportId: `CORR-DEMO-${Date.now().toString().slice(-5)}`,
+            title: 'AI 诊断结果专家修正记录',
+            riskLevel: payload.correctedRiskLevel,
+            sections: ['专家修正结论', '修正证据', '修正原因', '修正措施'],
+            markdown,
+            generatedAt: new Date().toISOString(),
+            markdownDownloadUrl: '',
+            pdfDownloadUrl: ''
+          },
+          ...this.reports
+        ];
       }
     },
     downloadMarkdown(report) {
@@ -1711,9 +2017,21 @@ li {
   grid-column: 1 / -1;
 }
 
-.knowledge-grid {
+.knowledge-grid,
+.knowledge-workbench {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.knowledge-workbench .quick-form,
+.knowledge-review-list {
+  grid-column: span 3;
+}
+
+.knowledge-review-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -1848,10 +2166,11 @@ li {
 
   .metric-grid,
   .cards-grid,
-  .management-grid,
-  .delivery-strip,
-  .completion-list,
-  .reports {
+    .management-grid,
+    .delivery-strip,
+    .completion-list,
+    .reports,
+    .knowledge-review-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -1864,6 +2183,8 @@ li {
   .completion-list,
   .reports,
   .knowledge-grid,
+  .knowledge-workbench,
+  .knowledge-review-list,
   .case-card,
   .quick-form,
   .diagnose-form,

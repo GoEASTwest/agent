@@ -42,13 +42,21 @@
 - 新增前端页面 `/files`，集中展示工具智能体生成的 Markdown、PDF 和下载资源。
 - 文件中心支持按类型筛选、下载文件、复制下载链接。
 
-### 5. Markdown 和 PDF 展示优化
+### 5. 知识沉淀、审核与修正闭环
+
+- 新增一线检修经验提交能力，支持填写设备类型、故障名称、症状、图片特征、原因、处理方案和现场经验。
+- 新增专家审核流程，知识条目状态支持 `待审核`、`已通过`、`已驳回`。
+- 专家审核通过后，经验会自动转入故障案例库，并生成 Markdown/PDF 归档文件进入文件中心。
+- 报告中心新增“专家修正 AI 输出”，可修正风险等级、证据、原因和处理措施，并归档修正记录。
+- 该闭环对应赛题中“知识沉淀与更新”和“手动标注与修正大模型输出结果”的要求。
+
+### 6. Markdown 和 PDF 展示优化
 
 - 前端新增 `MarkdownMessage.vue`，使用 `marked` + `dompurify` 渲染 AI 返回内容，避免直接显示 Markdown 源码。
 - 检修工作台 AI 问答和工具智能体回答都已接入 Markdown 渲染。
 - 新增 `PdfFontProvider`，并调整 PDF 生成逻辑，解决中文 PDF 字体和乱码问题。
 
-### 6. 本地运行稳定性优化
+### 7. 本地运行稳定性优化
 
 - 新增 `.env.example`，方便配置 DashScope、数据库、搜索等环境变量。
 - 优化 `scripts/start-backend.ps1`，支持加载 `.env`、检查 Java 21、默认关闭 PgVector/MCP 自动连接。
@@ -56,7 +64,12 @@
 - 调整 `vite.config.js` 和统一前端 `src/api.js`，解决本地开发时 `/api` 代理到后端的问题。
 - 默认演示模式使用内存数据，不强制依赖 PostgreSQL、PgVector 或 MCP，便于比赛现场稳定启动。
 
-### 7. 与原项目保留关系
+### 8. 银河麒麟 / LoongArch 部署补充
+
+- 新增 `docs/银河麒麟LoongArch部署说明.md`，说明在比赛指定虚拟机上检查 `loongarch64` 架构、安装 Java 21、安装 Node.js、配置 DashScope、构建和启动项目的步骤。
+- 当前 Windows 环境已完成前后端构建验证；最终提交前仍需在大赛提供的银河麒麟 LoongArch 虚拟机中完成真实运行验证。
+
+### 9. 与原项目保留关系
 
 - 原有 Spring Boot、Vue 3、Spring AI、RAG、工具类、MCP 搜索器等结构仍保留。
 - PostgreSQL + PgVector 配置仍保留，后续可按需要重新打开。

@@ -9,9 +9,13 @@ import com.hp.aiagent.maintenance.model.CompletionItem;
 import com.hp.aiagent.maintenance.model.ImageAnalysisRequest;
 import com.hp.aiagent.maintenance.model.ImageAnalysisResult;
 import com.hp.aiagent.maintenance.model.InspectionRequest;
+import com.hp.aiagent.maintenance.model.KnowledgeContribution;
+import com.hp.aiagent.maintenance.model.KnowledgeContributionRequest;
+import com.hp.aiagent.maintenance.model.KnowledgeReviewRequest;
 import com.hp.aiagent.maintenance.model.MaintenanceTask;
 import com.hp.aiagent.maintenance.model.MaintenanceTaskCreateRequest;
 import com.hp.aiagent.maintenance.model.ModuleCapability;
+import com.hp.aiagent.maintenance.model.ReportCorrectionRequest;
 import com.hp.aiagent.maintenance.model.ReportResult;
 import com.hp.aiagent.maintenance.model.RoleProfile;
 import com.hp.aiagent.maintenance.model.TaskArchiveResult;
@@ -92,6 +96,21 @@ public class MaintenanceController {
         return maintenanceService.listKnowledgeDocuments();
     }
 
+    @GetMapping("/knowledge/contributions")
+    public List<KnowledgeContribution> knowledgeContributions() {
+        return maintenanceService.listKnowledgeContributions();
+    }
+
+    @PostMapping("/knowledge/contributions")
+    public KnowledgeContribution submitKnowledge(@RequestBody KnowledgeContributionRequest request) {
+        return maintenanceService.submitKnowledge(request);
+    }
+
+    @PostMapping("/knowledge/contributions/{id}/review")
+    public KnowledgeContribution reviewKnowledge(@PathVariable String id, @RequestBody KnowledgeReviewRequest request) {
+        return maintenanceService.reviewKnowledge(id, request);
+    }
+
     @PostMapping("/diagnose")
     public DiagnosisResult diagnose(@RequestBody InspectionRequest request) {
         return maintenanceService.diagnose(request);
@@ -130,6 +149,11 @@ public class MaintenanceController {
     @PostMapping("/reports")
     public ReportResult generateReport(@RequestBody DiagnosisResult diagnosisResult) {
         return maintenanceService.generateReport(diagnosisResult);
+    }
+
+    @PostMapping("/reports/corrections")
+    public ReportResult correctReport(@RequestBody ReportCorrectionRequest request) {
+        return maintenanceService.correctReport(request);
     }
 
     @GetMapping("/reports")

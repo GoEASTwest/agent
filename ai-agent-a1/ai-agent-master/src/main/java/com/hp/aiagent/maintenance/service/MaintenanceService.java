@@ -10,9 +10,13 @@ import com.hp.aiagent.maintenance.model.CompletionItem;
 import com.hp.aiagent.maintenance.model.ImageAnalysisRequest;
 import com.hp.aiagent.maintenance.model.ImageAnalysisResult;
 import com.hp.aiagent.maintenance.model.InspectionRequest;
+import com.hp.aiagent.maintenance.model.KnowledgeContribution;
+import com.hp.aiagent.maintenance.model.KnowledgeContributionRequest;
+import com.hp.aiagent.maintenance.model.KnowledgeReviewRequest;
 import com.hp.aiagent.maintenance.model.MaintenanceTask;
 import com.hp.aiagent.maintenance.model.MaintenanceTaskCreateRequest;
 import com.hp.aiagent.maintenance.model.ModuleCapability;
+import com.hp.aiagent.maintenance.model.ReportCorrectionRequest;
 import com.hp.aiagent.maintenance.model.ReportResult;
 import com.hp.aiagent.maintenance.model.RoleProfile;
 import com.hp.aiagent.maintenance.model.TaskArchiveResult;
@@ -51,6 +55,7 @@ public class MaintenanceService {
     private final List<RoleProfile> roles = new CopyOnWriteArrayList<>();
     private final List<ModuleCapability> modules = new CopyOnWriteArrayList<>();
     private final List<TaskFlowEvent> taskFlowEvents = new CopyOnWriteArrayList<>();
+    private final List<KnowledgeContribution> knowledgeContributions = new CopyOnWriteArrayList<>();
 
     public MaintenanceService() {
         devices.addAll(List.of(
@@ -92,6 +97,25 @@ public class MaintenanceService {
                 List.of("绝缘表", "红外测温仪", "接线端子", "绝缘胶带"),
                 List.of("绝缘电阻满足企业标准", "空载电流三相平衡", "试运行 30 分钟无焦味和异常温升"),
                 LocalDateTime.now().minusHours(2)));
+
+        knowledgeContributions.add(new KnowledgeContribution(
+                "KC-1001",
+                "主电机端子过热经验",
+                "电机",
+                "绕组过热与绝缘下降",
+                List.of("外壳高温", "电流异常", "焦味"),
+                List.of("焦痕", "变色", "绝缘破损"),
+                "端子松动、散热不良或绝缘老化会导致局部发热并产生焦味",
+                "停机断电后复紧端子，测量绝缘电阻，清理散热通道并做空载试运行",
+                "现场经验：端子发黑时不要只更换胶带，应同步检查压接力矩、三相电流平衡和端子排温升。",
+                "巡检员张工",
+                "已通过",
+                "专家复核通过，已纳入案例库",
+                LocalDateTime.now().minusDays(1),
+                LocalDateTime.now().minusHours(20),
+                "",
+                ""
+        ));
 
         roles.addAll(List.of(
                 new RoleProfile("inspector", "巡检员", "现场采集异常、上传图片和填写巡检参数",
@@ -198,12 +222,17 @@ public class MaintenanceService {
     }
 
     public List<String> listKnowledgeDocuments() {
-        return List.of(
+        List<String> documents = new ArrayList<>(List.of(
                 "paper1.md - 正常运行状态诊断知识",
                 "paper2.md - 早期故障诊断知识",
                 "paper3.md - 严重故障诊断知识",
                 "maintenance_workflow.md - 检修作业闭环知识"
-        );
+        ));
+        knowledgeContributions.stream()
+                .filter(item -> "已通过".equals(item.status()))
+                .map(item -> item.id() + " - " + item.title())
+                .forEach(documents::add);
+        return documents;
     }
 
     public List<CompletionItem> completionOverview() {
@@ -223,6 +252,12 @@ public class MaintenanceService {
                 new CompletionItem("RAG 知识库", "原型完成", 75,
                         "本地 Markdown 知识库已加载到内存向量库并用于检修问答",
                         "生产部署时启用 PostgreSQL + PgVector 持久化"),
+                new CompletionItem("知识沉淀审核", "已实现", 86,
+                        "一线经验可提交待审，专家通过后自动转入案例库并生成归档文件",
+                        "接入登录、版本号和数据库后形成真实审核台账"),
+                new CompletionItem("AI 输出修正", "已实现", 82,
+                        "诊断报告支持专家修正风险、原因和措施，并归档到文件中心",
+                        "增加多专家会签和修正前后对比视图"),
                 new CompletionItem("多模态图片能力", "已实现", 80,
                         "已支持图片描述特征抽取、Qwen-VL 图片 URL 分析、相似案例匹配和诊断联动",
                         "融合 image-backend 的上传、审核、标签和相似检索"),
@@ -255,7 +290,7 @@ public class MaintenanceService {
                 devices.size(),
                 warningCount,
                 openTaskCount,
-                faultCases.size(),
+                faultCases.size() + knowledgeContributions.size(),
                 riskDistribution,
                 listTasks().stream().limit(5).toList()
         );
@@ -453,6 +488,126 @@ public class MaintenanceService {
         return reports.stream().limit(20).toList();
     }
 
+    public List<KnowledgeContribution> listKnowledgeContributions() {
+        return knowledgeContributions.stream()
+                .sorted(Comparator.comparing(KnowledgeContribution::createdAt).reversed())
+                .toList();
+    }
+
+    public KnowledgeContribution submitKnowledge(KnowledgeContributionRequest request) {
+        KnowledgeContribution contribution = new KnowledgeContribution(
+                "KC-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT),
+                requiredText(request.title(), "知识标题"),
+                blankToDefault(request.deviceType(), "未分类"),
+                requiredText(request.faultName(), "故障名称"),
+                emptyToDefault(request.symptoms(), List.of("待补充症状")),
+                emptyToDefault(request.imageFeatures(), List.of("待人工复核")),
+                requiredText(request.cause(), "故障原因"),
+                requiredText(request.solution(), "处理方案"),
+                blankToDefault(request.content(), "现场经验待补充"),
+                blankToDefault(request.submitter(), "一线人员"),
+                "待审核",
+                "等待专家审核",
+                LocalDateTime.now(),
+                null,
+                "",
+                ""
+        );
+        knowledgeContributions.add(0, contribution);
+        return contribution;
+    }
+
+    public KnowledgeContribution reviewKnowledge(String id, KnowledgeReviewRequest request) {
+        String targetStatus = blankToDefault(request.status(), "已通过");
+        if (!List.of("已通过", "已驳回", "待审核").contains(targetStatus)) {
+            throw new IllegalArgumentException("不支持的审核状态：" + targetStatus);
+        }
+        for (int i = 0; i < knowledgeContributions.size(); i++) {
+            KnowledgeContribution item = knowledgeContributions.get(i);
+            if (!item.id().equals(id)) {
+                continue;
+            }
+            KnowledgeContribution reviewed = new KnowledgeContribution(
+                    item.id(),
+                    item.title(),
+                    item.deviceType(),
+                    item.faultName(),
+                    item.symptoms(),
+                    item.imageFeatures(),
+                    item.cause(),
+                    item.solution(),
+                    item.content(),
+                    item.submitter(),
+                    targetStatus,
+                    blankToDefault(request.reviewNote(), targetStatus.equals("已通过") ? "专家审核通过" : "专家已处理"),
+                    item.createdAt(),
+                    LocalDateTime.now(),
+                    item.markdownDownloadUrl(),
+                    item.pdfDownloadUrl()
+            );
+            if ("已通过".equals(targetStatus)) {
+                reviewed = archiveApprovedKnowledge(reviewed);
+                appendFaultCaseIfAbsent(reviewed);
+            }
+            knowledgeContributions.set(i, reviewed);
+            return reviewed;
+        }
+        throw new IllegalArgumentException("Knowledge contribution not found: " + id);
+    }
+
+    public ReportResult correctReport(ReportCorrectionRequest request) {
+        String riskLevel = blankToDefault(request.correctedRiskLevel(), "专家复核");
+        String reportId = blankToDefault(request.reportId(), "RPT-CORR-" + UUID.randomUUID().toString().substring(0, 6).toUpperCase(Locale.ROOT));
+        List<String> sections = List.of("专家修正结论", "修正证据", "修正原因", "修正措施", "复核说明");
+        String markdown = """
+                # AI 诊断结果专家修正记录
+
+                ## 基本信息
+                - 原报告编号：%s
+                - 复核人：%s
+                - 修正后风险等级：%s
+                - 复核时间：%s
+
+                ## 修正证据
+                %s
+
+                ## 修正原因
+                %s
+
+                ## 修正措施
+                %s
+
+                ## 复核说明
+                %s
+                """.formatted(
+                reportId,
+                blankToDefault(request.reviewer(), "专家"),
+                riskLevel,
+                LocalDateTime.now(),
+                toMarkdownList(emptyToDefault(request.correctedEvidence(), List.of("专家认为原始证据需要补充现场复测数据"))),
+                toMarkdownList(emptyToDefault(request.correctedCauses(), List.of("待结合拆检结果最终确认"))),
+                toMarkdownList(emptyToDefault(request.correctedActions(), List.of("按修正意见更新作业单并归档"))),
+                blankToDefault(request.reviewNote(), "专家已完成修正，建议纳入案例复盘")
+        );
+        String correctedId = "CORR-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
+        String baseFileName = "correction-" + correctedId.toLowerCase(Locale.ROOT);
+        String markdownFileName = baseFileName + ".md";
+        String pdfFileName = baseFileName + ".pdf";
+        saveReportFiles(markdownFileName, pdfFileName, markdown);
+        ReportResult report = new ReportResult(
+                correctedId,
+                "AI 诊断结果专家修正记录",
+                riskLevel,
+                sections,
+                markdown,
+                LocalDateTime.now(),
+                downloadUrl("file", markdownFileName),
+                downloadUrl("pdf", pdfFileName)
+        );
+        reports.add(0, report);
+        return report;
+    }
+
     public TaskArchiveResult archiveTask(String taskId) {
         MaintenanceTask task = tasks.stream()
                 .filter(item -> item.id().equals(taskId))
@@ -520,6 +675,90 @@ public class MaintenanceService {
                 List.of("异常参数回落至关注阈值以下", "试运行无异常噪声、焦味、漏油", "检修记录和图片归档"),
                 LocalDateTime.now()
         );
+    }
+
+    private KnowledgeContribution archiveApprovedKnowledge(KnowledgeContribution item) {
+        String baseFileName = "knowledge-" + item.id().toLowerCase(Locale.ROOT);
+        String markdownFileName = baseFileName + ".md";
+        String pdfFileName = baseFileName + ".pdf";
+        String markdown = """
+                # 检修经验知识沉淀
+
+                ## 基本信息
+                - 知识编号：%s
+                - 标题：%s
+                - 设备类型：%s
+                - 故障名称：%s
+                - 提交人：%s
+                - 审核状态：%s
+                - 审核意见：%s
+
+                ## 典型症状
+                %s
+
+                ## 图片特征
+                %s
+
+                ## 原因分析
+                %s
+
+                ## 处理方案
+                %s
+
+                ## 现场经验
+                %s
+                """.formatted(
+                item.id(),
+                item.title(),
+                item.deviceType(),
+                item.faultName(),
+                item.submitter(),
+                item.status(),
+                item.reviewNote(),
+                toMarkdownList(item.symptoms()),
+                toMarkdownList(item.imageFeatures()),
+                item.cause(),
+                item.solution(),
+                item.content()
+        );
+        saveReportFiles(markdownFileName, pdfFileName, markdown);
+        return new KnowledgeContribution(
+                item.id(),
+                item.title(),
+                item.deviceType(),
+                item.faultName(),
+                item.symptoms(),
+                item.imageFeatures(),
+                item.cause(),
+                item.solution(),
+                item.content(),
+                item.submitter(),
+                item.status(),
+                item.reviewNote(),
+                item.createdAt(),
+                item.reviewedAt(),
+                downloadUrl("file", markdownFileName),
+                downloadUrl("pdf", pdfFileName)
+        );
+    }
+
+    private void appendFaultCaseIfAbsent(KnowledgeContribution item) {
+        boolean exists = faultCases.stream()
+                .anyMatch(faultCase -> faultCase.faultName().equals(item.faultName())
+                        && faultCase.deviceType().equals(item.deviceType()));
+        if (exists) {
+            return;
+        }
+        faultCases.add(new FaultCase(
+                "CASE-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT),
+                item.deviceType(),
+                item.faultName(),
+                item.symptoms(),
+                item.imageFeatures(),
+                item.cause(),
+                item.solution(),
+                3
+        ));
     }
 
     private String riskLevel(int score) {
