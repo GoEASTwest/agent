@@ -95,6 +95,41 @@ DASHSCOPE_COMPATIBLE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 
 不要把真实 `.env` 提交到 Git。
 
+## 5.1 可选 PostgreSQL 业务持久化
+
+默认演示模式不要求数据库。若比赛环境允许启动 PostgreSQL，建议开启业务持久化：
+
+```bash
+sudo dnf install -y postgresql-server postgresql-contrib
+sudo postgresql-setup --initdb
+sudo systemctl enable --now postgresql
+```
+
+创建数据库和用户的命令可按平台 PostgreSQL 配置调整，示例：
+
+```bash
+sudo -u postgres psql
+```
+
+在 psql 中执行：
+
+```sql
+create database ai_agent;
+alter user postgres with password 'postgres';
+\q
+```
+
+然后在 `.env` 中设置：
+
+```bash
+DB_URL=jdbc:postgresql://localhost:5432/ai_agent
+DB_USERNAME=postgres
+DB_PASSWORD=postgres
+APP_JDBC_PERSISTENCE_ENABLED=true
+```
+
+开启后端时会自动执行 `sql/maintenance_schema.sql` 和 `sql/maintenance_seed.sql`，初始化设备、案例、作业单、报告、流转记录和知识审核表。
+
 ## 6. 构建前端
 
 ```bash

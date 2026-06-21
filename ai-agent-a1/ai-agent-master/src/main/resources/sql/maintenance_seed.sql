@@ -15,3 +15,31 @@ values
 ('CASE-003', '电机', '绕组过热与绝缘下降', '["外壳高温","电流异常","焦味"]', '["焦痕","变色","绝缘破损"]', '长期过载、散热不良或绝缘老化引起绕组局部过热', '立即停机断电，测绝缘电阻，检查接线端子和散热通道', 5),
 ('CASE-004', '齿轮箱', '齿面点蚀', '["啮合噪声","油液金属屑","振动边频"]', '["金属屑","齿面麻点","油液浑浊"]', '载荷冲击或润滑油污染导致齿面疲劳', '取样化验油液，检查齿面，过滤或更换润滑油', 3)
 on conflict (id) do nothing;
+
+insert into maintenance_task
+(id, device_id, title, priority, status, step_json, spare_part_json, acceptance_json, created_at)
+values
+('TASK-1001', 'DEV-MOTOR-03', '主电机绝缘异常复检', 'P1', '待处理',
+ '["断电挂牌上锁","测量三相绝缘电阻","检查接线端子焦痕","清理散热通道","复测空载电流"]',
+ '["绝缘表","红外测温仪","接线端子","绝缘胶带"]',
+ '["绝缘电阻满足企业标准","空载电流三相平衡","试运行 30 分钟无焦味和异常温升"]',
+ current_timestamp)
+on conflict (id) do nothing;
+
+insert into maintenance_knowledge_contribution
+(id, title, device_type, fault_name, symptom_json, image_feature_json, cause, solution, content, submitter, status, review_note, created_at, reviewed_at, markdown_download_url, pdf_download_url)
+values
+('KC-1001', '主电机端子过热经验', '电机', '绕组过热与绝缘下降',
+ '["外壳高温","电流异常","焦味"]',
+ '["焦痕","变色","绝缘破损"]',
+ '端子松动、散热不良或绝缘老化会导致局部发热并产生焦味',
+ '停机断电后复紧端子，测量绝缘电阻，清理散热通道并做空载试运行',
+ '现场经验：端子发黑时不要只更换胶带，应同步检查压接力矩、三相电流平衡和端子排温升。',
+ '巡检员张工',
+ '已通过',
+ '专家复核通过，已纳入案例库',
+ current_timestamp,
+ current_timestamp,
+ '',
+ '')
+on conflict (id) do nothing;

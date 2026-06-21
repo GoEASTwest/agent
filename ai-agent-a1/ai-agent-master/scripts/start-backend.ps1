@@ -12,9 +12,7 @@ if (Test-Path $EnvFile) {
             return
         }
         $name, $value = $line.Split("=", 2)
-        if (-not [Environment]::GetEnvironmentVariable($name, "Process")) {
-            [Environment]::SetEnvironmentVariable($name, $value, "Process")
-        }
+        [Environment]::SetEnvironmentVariable($name, $value, "Process")
     }
 }
 
@@ -42,6 +40,11 @@ if (-not $env:DASHSCOPE_API_KEY -and -not $env:api_key) {
 
 if (-not $env:SPRING_APPLICATION_JSON) {
     $env:SPRING_APPLICATION_JSON = '{"app":{"vectorstore":{"pgvector":{"enabled":false}}},"spring":{"autoconfigure":{"exclude":["org.springframework.ai.autoconfigure.mcp.client.McpClientAutoConfiguration","org.springframework.ai.autoconfigure.mcp.client.StdioTransportAutoConfiguration"]}}}'
+}
+
+Write-Host "Backend database persistence: $($env:APP_JDBC_PERSISTENCE_ENABLED)"
+if ($env:APP_JDBC_PERSISTENCE_ENABLED -eq "true") {
+    Write-Host "Database URL: $($env:DB_URL)"
 }
 
 .\mvnw.cmd spring-boot:run

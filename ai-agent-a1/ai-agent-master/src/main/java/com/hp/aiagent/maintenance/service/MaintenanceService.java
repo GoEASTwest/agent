@@ -21,12 +21,14 @@ import com.hp.aiagent.maintenance.model.ReportResult;
 import com.hp.aiagent.maintenance.model.RoleProfile;
 import com.hp.aiagent.maintenance.model.TaskArchiveResult;
 import com.hp.aiagent.maintenance.model.TaskFlowEvent;
+import com.hp.aiagent.maintenance.repository.MaintenanceJdbcRepository;
 import com.hp.aiagent.tools.PdfFontProvider;
 import com.itextpdf.kernel.font.PdfFont;
 import com.itextpdf.kernel.pdf.PdfDocument;
 import com.itextpdf.kernel.pdf.PdfWriter;
 import com.itextpdf.layout.Document;
 import com.itextpdf.layout.element.Paragraph;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -56,8 +58,10 @@ public class MaintenanceService {
     private final List<ModuleCapability> modules = new CopyOnWriteArrayList<>();
     private final List<TaskFlowEvent> taskFlowEvents = new CopyOnWriteArrayList<>();
     private final List<KnowledgeContribution> knowledgeContributions = new CopyOnWriteArrayList<>();
+    private final MaintenanceJdbcRepository jdbcRepository;
 
-    public MaintenanceService() {
+    public MaintenanceService(ObjectProvider<MaintenanceJdbcRepository> jdbcRepositoryProvider) {
+        this.jdbcRepository = jdbcRepositoryProvider.getIfAvailable();
         devices.addAll(List.of(
                 new DeviceAsset("DEV-FAN-01", "一号引风机", "风机", "锅炉房 A 区", "运行", "关注",
                         List.of("振动", "温度", "电流", "噪声"), "2026-06-10 09:20"),
@@ -154,12 +158,15 @@ public class MaintenanceService {
     }
 
     public List<DeviceAsset> listDevices() {
+        if (isJdbcEnabled()) {
+            return jdbcRepository.listDevices();
+        }
         return devices;
     }
 
     public DeviceAsset createDevice(DeviceCreateRequest request) {
         String id = blankToDefault(request.id(), "DEV-" + UUID.randomUUID().toString().substring(0, 6).toUpperCase(Locale.ROOT));
-        if (devices.stream().anyMatch(device -> device.id().equals(id))) {
+        if (listDevices().stream().anyMatch(device -> device.id().equals(id))) {
             throw new IllegalArgumentException("设备编号已存在：" + id);
         }
         DeviceAsset device = new DeviceAsset(
@@ -172,11 +179,14 @@ public class MaintenanceService {
                 emptyToDefault(request.sensors(), List.of("温度", "振动")),
                 blankToDefault(request.lastInspectionTime(), LocalDateTime.now().toString().replace('T', ' ').substring(0, 16))
         );
-        devices.add(device);
+        saveDevice(device);
         return device;
     }
 
     public List<FaultCase> listFaultCases() {
+        if (isJdbcEnabled()) {
+            return jdbcRepository.listFaultCases();
+        }
         return faultCases;
     }
 
@@ -189,6 +199,9 @@ public class MaintenanceService {
     }
 
     public List<TaskFlowEvent> listTaskFlowEvents() {
+        if (isJdbcEnabled()) {
+            return jdbcRepository.listTaskFlowEvents();
+        }
         return taskFlowEvents.stream()
                 .sorted(Comparator.comparing(TaskFlowEvent::operatedAt).reversed())
                 .limit(50)
@@ -196,6 +209,9 @@ public class MaintenanceService {
     }
 
     public List<MaintenanceTask> listTasks() {
+        if (isJdbcEnabled()) {
+            return jdbcRepository.listTasks();
+        }
         return tasks.stream()
                 .sorted(Comparator.comparing(MaintenanceTask::createdAt).reversed())
                 .toList();
@@ -203,7 +219,7 @@ public class MaintenanceService {
 
     public MaintenanceTask createTask(MaintenanceTaskCreateRequest request) {
         String id = blankToDefault(request.id(), "TASK-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT));
-        if (tasks.stream().anyMatch(task -> task.id().equals(id))) {
+        if (listTasks().stream().anyMatch(task -> task.id().equals(id))) {
             throw new IllegalArgumentException("作业单编号已存在：" + id);
         }
         MaintenanceTask task = new MaintenanceTask(
@@ -217,7 +233,7 @@ public class MaintenanceService {
                 emptyToDefault(request.acceptanceCriteria(), List.of("异常现象消除", "试运行稳定", "记录归档")),
                 LocalDateTime.now()
         );
-        tasks.add(task);
+        saveTask(task);
         return task;
     }
 
@@ -228,7 +244,7 @@ public class MaintenanceService {
                 "paper3.md - 严重故障诊断知识",
                 "maintenance_workflow.md - 检修作业闭环知识"
         ));
-        knowledgeContributions.stream()
+        listKnowledgeContributions().stream()
                 .filter(item -> "已通过".equals(item.status()))
                 .map(item -> item.id() + " - " + item.title())
                 .forEach(documents::add);
@@ -241,8 +257,8 @@ public class MaintenanceService {
                         "看板、台账、案例、诊断、图片分析、作业单、知识库和 AI 问答均可演示",
                         "补充大屏适配和答辩录屏素材"),
                 new CompletionItem("检修业务后端", "已实现", 90,
-                        "设备、案例、任务、诊断、图片特征和报告接口已跑通",
-                        "接入数据库 Repository，替换内存演示数据"),
+                        "设备、案例、任务、诊断、图片特征、报告和知识审核接口已跑通",
+                        "数据库持久化已支持可选开启，后续接入登录鉴权"),
                 new CompletionItem("大模型问答", "已实现", 85,
                         "DashScope/Qwen 接入成功，支持同步和 SSE 流式问答",
                         "增加失败降级话术和模型调用审计"),
@@ -254,7 +270,7 @@ public class MaintenanceService {
                         "生产部署时启用 PostgreSQL + PgVector 持久化"),
                 new CompletionItem("知识沉淀审核", "已实现", 86,
                         "一线经验可提交待审，专家通过后自动转入案例库并生成归档文件",
-                        "接入登录、版本号和数据库后形成真实审核台账"),
+                        "补充版本号、审核人签名和知识有效期"),
                 new CompletionItem("AI 输出修正", "已实现", 82,
                         "诊断报告支持专家修正风险、原因和措施，并归档到文件中心",
                         "增加多专家会签和修正前后对比视图"),
@@ -268,8 +284,8 @@ public class MaintenanceService {
                         "已沉淀模块清单、负责人角色、依赖关系、启用状态和成熟度",
                         "接入配置中心后支持动态开关"),
                 new CompletionItem("工程部署", "演示可用", 65,
-                        "Java 21、前后端启动脚本、环境变量模板和演示模式已整理",
-                        "安装 Node.js 18+ 后补充前端构建验证；接入数据库初始化脚本")
+                        "Java 21、前后端启动脚本、环境变量模板、数据库开关和麒麟部署说明已整理",
+                        "在大赛 LoongArch/银河麒麟虚机完成最终启动验证")
         );
     }
 
@@ -278,21 +294,25 @@ public class MaintenanceService {
         for (String risk : List.of("正常", "关注", "预警", "严重")) {
             riskDistribution.put(risk, 0);
         }
-        devices.forEach(device -> riskDistribution.computeIfPresent(device.riskLevel(), (key, value) -> value + 1));
+        List<DeviceAsset> currentDevices = listDevices();
+        List<MaintenanceTask> currentTasks = listTasks();
+        List<FaultCase> currentCases = listFaultCases();
+        List<KnowledgeContribution> currentKnowledge = listKnowledgeContributions();
+        currentDevices.forEach(device -> riskDistribution.computeIfPresent(device.riskLevel(), (key, value) -> value + 1));
 
-        int warningCount = (int) devices.stream()
+        int warningCount = (int) currentDevices.stream()
                 .filter(device -> !"正常".equals(device.riskLevel()))
                 .count();
-        int openTaskCount = (int) tasks.stream()
+        int openTaskCount = (int) currentTasks.stream()
                 .filter(task -> !"已归档".equals(task.status()))
                 .count();
         return new DashboardSummary(
-                devices.size(),
+                currentDevices.size(),
                 warningCount,
                 openTaskCount,
-                faultCases.size() + knowledgeContributions.size(),
+                currentCases.size() + currentKnowledge.size(),
                 riskDistribution,
-                listTasks().stream().limit(5).toList()
+                currentTasks.stream().limit(5).toList()
         );
     }
 
@@ -344,7 +364,6 @@ public class MaintenanceService {
         similarCases.stream().findFirst().ifPresent(faultCase -> recommendedActions.add(faultCase.solution()));
 
         MaintenanceTask generatedTask = createTask(request, riskLevel, recommendedActions);
-        tasks.add(generatedTask);
 
         return new DiagnosisResult(
                 riskLevel,
@@ -407,8 +426,7 @@ public class MaintenanceService {
     }
 
     public MaintenanceTask updateTaskStatus(String taskId, String status, String operatorRole, String note) {
-        for (int i = 0; i < tasks.size(); i++) {
-            MaintenanceTask task = tasks.get(i);
+        for (MaintenanceTask task : listTasks()) {
             if (task.id().equals(taskId)) {
                 validateTransition(task.status(), status, operatorRole);
                 MaintenanceTask updatedTask = new MaintenanceTask(
@@ -422,8 +440,8 @@ public class MaintenanceService {
                         task.acceptanceCriteria(),
                         task.createdAt()
                 );
-                tasks.set(i, updatedTask);
-                taskFlowEvents.add(new TaskFlowEvent(
+                saveTask(updatedTask);
+                saveTaskFlowEvent(new TaskFlowEvent(
                         task.id(),
                         task.status(),
                         status,
@@ -480,15 +498,21 @@ public class MaintenanceService {
                 downloadUrl("file", markdownFileName),
                 downloadUrl("pdf", pdfFileName)
         );
-        reports.add(0, report);
+        saveReport(report);
         return report;
     }
 
     public List<ReportResult> listReports() {
+        if (isJdbcEnabled()) {
+            return jdbcRepository.listReports();
+        }
         return reports.stream().limit(20).toList();
     }
 
     public List<KnowledgeContribution> listKnowledgeContributions() {
+        if (isJdbcEnabled()) {
+            return jdbcRepository.listKnowledgeContributions();
+        }
         return knowledgeContributions.stream()
                 .sorted(Comparator.comparing(KnowledgeContribution::createdAt).reversed())
                 .toList();
@@ -513,7 +537,7 @@ public class MaintenanceService {
                 "",
                 ""
         );
-        knowledgeContributions.add(0, contribution);
+        saveKnowledgeContribution(contribution);
         return contribution;
     }
 
@@ -522,8 +546,7 @@ public class MaintenanceService {
         if (!List.of("已通过", "已驳回", "待审核").contains(targetStatus)) {
             throw new IllegalArgumentException("不支持的审核状态：" + targetStatus);
         }
-        for (int i = 0; i < knowledgeContributions.size(); i++) {
-            KnowledgeContribution item = knowledgeContributions.get(i);
+        for (KnowledgeContribution item : listKnowledgeContributions()) {
             if (!item.id().equals(id)) {
                 continue;
             }
@@ -549,7 +572,7 @@ public class MaintenanceService {
                 reviewed = archiveApprovedKnowledge(reviewed);
                 appendFaultCaseIfAbsent(reviewed);
             }
-            knowledgeContributions.set(i, reviewed);
+            saveKnowledgeContribution(reviewed);
             return reviewed;
         }
         throw new IllegalArgumentException("Knowledge contribution not found: " + id);
@@ -604,12 +627,12 @@ public class MaintenanceService {
                 downloadUrl("file", markdownFileName),
                 downloadUrl("pdf", pdfFileName)
         );
-        reports.add(0, report);
+        saveReport(report);
         return report;
     }
 
     public TaskArchiveResult archiveTask(String taskId) {
-        MaintenanceTask task = tasks.stream()
+        MaintenanceTask task = listTasks().stream()
                 .filter(item -> item.id().equals(taskId))
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Task not found: " + taskId));
@@ -633,7 +656,7 @@ public class MaintenanceService {
                 + (request.imageFeatures() == null ? "" : String.join(" ", request.imageFeatures())))
                 .toLowerCase(Locale.ROOT);
 
-        return faultCases.stream()
+        return listFaultCases().stream()
                 .sorted(Comparator.comparingInt((FaultCase faultCase) -> matchScore(faultCase, text)).reversed())
                 .filter(faultCase -> matchScore(faultCase, text) > 0)
                 .toList();
@@ -743,13 +766,13 @@ public class MaintenanceService {
     }
 
     private void appendFaultCaseIfAbsent(KnowledgeContribution item) {
-        boolean exists = faultCases.stream()
+        boolean exists = listFaultCases().stream()
                 .anyMatch(faultCase -> faultCase.faultName().equals(item.faultName())
                         && faultCase.deviceType().equals(item.deviceType()));
         if (exists) {
             return;
         }
-        faultCases.add(new FaultCase(
+        saveFaultCase(new FaultCase(
                 "CASE-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT),
                 item.deviceType(),
                 item.faultName(),
@@ -811,6 +834,63 @@ public class MaintenanceService {
                 .toList();
     }
 
+    private boolean isJdbcEnabled() {
+        return jdbcRepository != null;
+    }
+
+    private void saveDevice(DeviceAsset device) {
+        if (isJdbcEnabled()) {
+            jdbcRepository.saveDevice(device);
+            return;
+        }
+        devices.removeIf(item -> item.id().equals(device.id()));
+        devices.add(device);
+    }
+
+    private void saveFaultCase(FaultCase faultCase) {
+        if (isJdbcEnabled()) {
+            jdbcRepository.saveFaultCase(faultCase);
+            return;
+        }
+        faultCases.removeIf(item -> item.id().equals(faultCase.id()));
+        faultCases.add(faultCase);
+    }
+
+    private void saveTask(MaintenanceTask task) {
+        if (isJdbcEnabled()) {
+            jdbcRepository.saveTask(task);
+            return;
+        }
+        tasks.removeIf(item -> item.id().equals(task.id()));
+        tasks.add(task);
+    }
+
+    private void saveTaskFlowEvent(TaskFlowEvent event) {
+        if (isJdbcEnabled()) {
+            jdbcRepository.saveTaskFlowEvent(event);
+            return;
+        }
+        taskFlowEvents.add(event);
+    }
+
+    private void saveReport(ReportResult report) {
+        if (isJdbcEnabled()) {
+            jdbcRepository.saveReport(report);
+            return;
+        }
+        reports.removeIf(item -> item.reportId().equals(report.reportId()));
+        reports.add(0, report);
+    }
+
+    private void saveKnowledgeContribution(KnowledgeContribution contribution) {
+        if (isJdbcEnabled()) {
+            jdbcRepository.saveKnowledgeContribution(contribution);
+            return;
+        }
+        knowledgeContributions.removeIf(item -> item.id().equals(contribution.id()));
+        knowledgeContributions.add(0, contribution);
+    }
+
     private String toMarkdownList(List<String> items) {
         if (items == null || items.isEmpty()) {
             return "- 暂无";
@@ -819,7 +899,7 @@ public class MaintenanceService {
     }
 
     private String buildTaskArchiveMarkdown(MaintenanceTask task) {
-        List<TaskFlowEvent> flows = taskFlowEvents.stream()
+        List<TaskFlowEvent> flows = listTaskFlowEvents().stream()
                 .filter(event -> event.taskId().equals(task.id()))
                 .sorted(Comparator.comparing(TaskFlowEvent::operatedAt))
                 .toList();
