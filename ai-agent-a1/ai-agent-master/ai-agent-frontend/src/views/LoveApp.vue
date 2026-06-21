@@ -390,14 +390,16 @@
             </div>
           </div>
           <div class="task-actions">
+            <strong>下一步状态流转</strong>
             <button
-              v-for="flow in taskFlows"
+              v-for="flow in nextFlowsForTask(task)"
               :key="flow.status"
               @click="updateTaskFlow(task.id, flow)"
             >
-              {{ flow.status }}
+              {{ flow.label || flow.status }}
             </button>
-            <button @click="archiveTask(task)">归档作业单</button>
+            <span v-if="!nextFlowsForTask(task).length">当前状态暂无下一步流转</span>
+            <button @click="archiveTask(task)">生成归档文件</button>
           </div>
           <div v-if="taskArchives[task.id]" class="task-archive">
             <span>已生成归档文件</span>
@@ -427,6 +429,25 @@
           <h3>作业状态机</h3>
           <div class="flow-line">
             <span v-for="status in workflowStatuses" :key="status">{{ status }}</span>
+          </div>
+        </article>
+        <article class="panel">
+          <h3>作业状态操作</h3>
+          <div class="workflow-task" v-for="task in tasks" :key="task.id">
+            <div>
+              <strong>{{ task.id }}</strong>
+              <p>{{ task.title }} · 当前：{{ task.status }}</p>
+            </div>
+            <div class="task-actions compact">
+              <button
+                v-for="flow in nextFlowsForTask(task)"
+                :key="flow.status"
+                @click="updateTaskFlow(task.id, flow)"
+              >
+                {{ flow.label || flow.status }}
+              </button>
+              <span v-if="!nextFlowsForTask(task).length">已结束</span>
+            </div>
           </div>
         </article>
         <article class="task-card" v-for="event in taskFlowEvents" :key="event.taskId + event.operatedAt">
@@ -1019,12 +1040,12 @@ export default {
       visionAnalysis: null,
       featureOptions: ['油污', '锈蚀', '焦痕', '裂纹', '磨损', '漏液', '变色', '金属屑', '绝缘破损'],
       taskFlows: [
-        { status: '待派工', operatorRole: 'admin', note: '管理员确认派工' },
-        { status: '处理中', operatorRole: 'maintainer', note: '检修员接单处理' },
-        { status: '待验收', operatorRole: 'maintainer', note: '检修完成，提交验收' },
-        { status: '专家复核', operatorRole: 'expert', note: '专家复核 AI 诊断和检修记录' },
-        { status: '驳回整改', operatorRole: 'expert', note: '验收未通过，退回检修员整改' },
-        { status: '已归档', operatorRole: 'expert', note: '验收通过并归档复盘' }
+        { status: '待派工', label: '确认派工', operatorRole: 'admin', note: '管理员确认派工' },
+        { status: '处理中', label: '开始处理', operatorRole: 'maintainer', note: '检修员接单处理' },
+        { status: '待验收', label: '提交验收', operatorRole: 'maintainer', note: '检修完成，提交验收' },
+        { status: '专家复核', label: '提交专家复核', operatorRole: 'expert', note: '专家复核 AI 诊断和检修记录' },
+        { status: '驳回整改', label: '驳回整改', operatorRole: 'expert', note: '验收未通过，退回检修员整改' },
+        { status: '已归档', label: '验收通过归档', operatorRole: 'expert', note: '验收通过并归档复盘' }
       ],
       workflowStatuses: ['待处理', '待派工', '处理中', '待验收', '专家复核', '驳回整改', '已归档'],
       messages: [],
@@ -1485,6 +1506,19 @@ export default {
       if (/(焦痕|裂纹|绝缘破损)/.test(text)) return '严重';
       if (/(漏液|油污|变色|金属屑|磨损)/.test(text)) return '预警';
       return '关注';
+    },
+    nextFlowsForTask(task) {
+      const nextStatusMap = {
+        待处理: ['待派工', '处理中'],
+        待派工: ['处理中'],
+        处理中: ['待验收'],
+        待验收: ['专家复核', '已归档'],
+        专家复核: ['驳回整改', '已归档'],
+        驳回整改: ['处理中', '待验收'],
+        已归档: []
+      };
+      const nextStatuses = nextStatusMap[task.status] || ['待派工'];
+      return this.taskFlows.filter((flow) => nextStatuses.includes(flow.status));
     },
     localImageAnalysis() {
       const description = this.imageForm.visualDescription;
@@ -2322,6 +2356,24 @@ li {
   gap: 14px;
 }
 
+.workflow-task {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  border-top: 1px solid #e4ece7;
+  padding: 14px 0;
+}
+
+.workflow-task:first-of-type {
+  border-top: 0;
+}
+
+.workflow-task p {
+  margin: 6px 0 0;
+  color: #66766e;
+}
+
 .flow-line {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -2479,10 +2531,28 @@ li {
 .task-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
   border-top: 1px solid #e4ece7;
   margin-top: 16px;
   padding-top: 14px;
+}
+
+.task-actions strong {
+  width: 100%;
+}
+
+.task-actions.compact {
+  justify-content: flex-end;
+  border-top: 0;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.task-actions.compact span,
+.task-actions span {
+  color: #66766e;
+  font-weight: 800;
 }
 
 .task-actions button {
