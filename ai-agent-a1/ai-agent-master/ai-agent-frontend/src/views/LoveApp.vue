@@ -565,6 +565,18 @@
       </section>
 
       <section v-if="activeTab === 'reports'" class="reports">
+        <article class="panel wide-card">
+          <div class="card-head">
+            <h3>持久化记录概览</h3>
+            <button class="ghost-button" type="button" @click="loadPersistenceViews">刷新记录</button>
+          </div>
+          <div class="record-strip">
+            <span>诊断历史 {{ inspectionRecords.length }}</span>
+            <span>报告总数 {{ reportPage.total || reports.length }}</span>
+            <span>修正记录 {{ correctionRecords.length }}</span>
+          </div>
+        </article>
+
         <form class="quick-form wide-card" @submit.prevent="submitReportCorrection">
           <h3>专家修正 AI 输出</h3>
           <label>
@@ -602,6 +614,33 @@
           </label>
           <button class="primary-button" type="submit">归档修正记录</button>
         </form>
+
+        <article class="report-card wide-card">
+          <div class="card-head">
+            <h3>诊断历史</h3>
+            <span>最近 {{ inspectionRecords.length }} 条</span>
+          </div>
+          <div v-if="!inspectionRecords.length" class="empty-line">暂无诊断历史，执行一次多模态诊断后会自动写入。</div>
+          <div v-for="record in inspectionRecords" :key="record.id" class="record-row">
+            <div>
+              <strong>{{ record.deviceId }}</strong>
+              <p>{{ record.description || '无现场描述' }}</p>
+            </div>
+            <span :class="['risk', riskClass(record.riskLevel)]">{{ record.riskLevel }}</span>
+            <small>{{ record.score }} 分 · {{ formatTime(record.createdAt) }}</small>
+          </div>
+        </article>
+
+        <article class="panel wide-card">
+          <div class="card-head">
+            <h3>报告归档</h3>
+            <div class="pager-actions">
+              <button class="ghost-button" type="button" :disabled="reportPage.page <= 1" @click="changeReportPage(-1)">上一页</button>
+              <span>第 {{ reportPage.page }} 页 / 共 {{ reportPage.total }} 条</span>
+              <button class="ghost-button" type="button" :disabled="reports.length < reportPage.size" @click="changeReportPage(1)">下一页</button>
+            </div>
+          </div>
+        </article>
         <article v-if="!reports.length" class="empty-state">
           <h3>暂无已归档报告</h3>
           <p>在“多模态诊断”里生成诊断结果并点击导出报告后，这里会沉淀报告记录。</p>
@@ -639,6 +678,22 @@
               下载报告
             </button>
             <router-link class="ghost-link" to="/files">文件中心</router-link>
+          </div>
+        </article>
+
+        <article class="report-card wide-card">
+          <div class="card-head">
+            <h3>专家修正记录</h3>
+            <span>最近 {{ correctionRecords.length }} 条</span>
+          </div>
+          <div v-if="!correctionRecords.length" class="empty-line">暂无修正记录，提交专家修正后会自动沉淀。</div>
+          <div v-for="record in correctionRecords" :key="record.id" class="record-row">
+            <div>
+              <strong>{{ record.sourceReportId || '未关联报告' }} → {{ record.correctedReportId }}</strong>
+              <p>{{ record.reviewNote }}</p>
+            </div>
+            <span :class="['risk', riskClass(record.correctedRiskLevel)]">{{ record.correctedRiskLevel }}</span>
+            <small>{{ record.reviewer }} · {{ formatTime(record.createdAt) }}</small>
           </div>
         </article>
       </section>
@@ -908,6 +963,13 @@ export default {
         { module: '工程部署', status: '演示可用', percent: 70, result: '启动脚本与环境模板已整理', nextStep: '补充构建验证' }
       ],
       reports: [],
+      reportPage: {
+        page: 1,
+        size: 10,
+        total: 0
+      },
+      inspectionRecords: [],
+      correctionRecords: [],
       correctionForm: {
         reportId: '',
         correctedRiskLevel: '预警',
@@ -1008,7 +1070,9 @@ export default {
         this.knowledgeDocs = knowledgeDocs;
         this.completionItems = completion;
         this.reports = reports;
+        this.reportPage.total = reports.length;
         this.knowledgeContributions = contributions;
+        await this.loadPersistenceViews();
         this.backendOnline = true;
         if (!this.knowledgeSearch.result) {
           await this.runKnowledgeSearch();
@@ -1022,6 +1086,7 @@ export default {
         this.cases = fallbackCases;
         this.knowledgeContributions = this.knowledgeContributions.length ? this.knowledgeContributions : fallbackKnowledgeContributions;
         this.tasks = this.tasks.length ? this.tasks : [this.mockTask()];
+        this.reportPage.total = this.reports.length;
         if (!this.knowledgeSearch.result) {
           this.knowledgeSearch.result = this.localKnowledgeSearch();
         }
@@ -1262,11 +1327,13 @@ export default {
           body: JSON.stringify(this.inspection)
         });
         this.tasks = await this.fetchJson('/maintenance/tasks');
+        await this.loadPersistenceViews();
         this.backendOnline = true;
       } catch (error) {
         this.backendOnline = false;
         this.diagnosis = this.localDiagnosis();
         this.tasks.unshift(this.diagnosis.generatedTask);
+        this.inspectionRecords = [this.localInspectionRecord(this.diagnosis), ...this.inspectionRecords].slice(0, 10);
       }
       this.activeTab = 'diagnose';
     },
@@ -1458,6 +1525,7 @@ export default {
         });
         markdown = report.markdown;
         this.reports = [report, ...this.reports.filter((item) => item.reportId !== report.reportId)];
+        this.reportPage.total += 1;
         this.correctionForm.reportId = report.reportId;
         this.correctionForm.correctedRiskLevel = report.riskLevel;
         this.backendOnline = true;
@@ -1492,6 +1560,7 @@ export default {
           pdfDownloadUrl: ''
         };
         this.reports = [report, ...this.reports.filter((item) => item.reportId !== report.reportId)];
+        this.reportPage.total = Math.max(this.reportPage.total, this.reports.length);
         this.correctionForm.reportId = report.reportId;
         this.correctionForm.correctedRiskLevel = report.riskLevel;
       }
@@ -1518,6 +1587,7 @@ export default {
           body: JSON.stringify(payload)
         });
         this.reports = [report, ...this.reports.filter((item) => item.reportId !== report.reportId)];
+        await this.loadPersistenceViews();
         this.backendOnline = true;
       } catch (error) {
         this.backendOnline = false;
@@ -1553,7 +1623,60 @@ export default {
           },
           ...this.reports
         ];
+        this.correctionRecords = [
+          {
+            id: `RC-DEMO-${Date.now().toString().slice(-5)}`,
+            sourceReportId: payload.reportId,
+            correctedReportId: this.reports[0].reportId,
+            reviewer: payload.reviewer,
+            correctedRiskLevel: payload.correctedRiskLevel,
+            reviewNote: payload.reviewNote,
+            createdAt: new Date().toISOString()
+          },
+          ...this.correctionRecords
+        ];
       }
+    },
+    async loadPersistenceViews() {
+      try {
+        const [reportPage, inspections, corrections] = await Promise.all([
+          this.fetchJson(`/maintenance/reports/page?page=${this.reportPage.page}&size=${this.reportPage.size}`),
+          this.fetchJson('/maintenance/inspections?page=1&size=10'),
+          this.fetchJson('/maintenance/reports/corrections?page=1&size=10')
+        ]);
+        this.reportPage = {
+          page: reportPage.page,
+          size: reportPage.size,
+          total: reportPage.total
+        };
+        this.reports = reportPage.records;
+        this.inspectionRecords = inspections;
+        this.correctionRecords = corrections;
+      } catch (error) {
+        this.reportPage.total = this.reports.length;
+      }
+    },
+    async changeReportPage(delta) {
+      const nextPage = Math.max(1, this.reportPage.page + delta);
+      if (nextPage === this.reportPage.page) return;
+      this.reportPage.page = nextPage;
+      await this.loadPersistenceViews();
+    },
+    localInspectionRecord(diagnosis) {
+      return {
+        id: `INSP-DEMO-${Date.now().toString().slice(-5)}`,
+        deviceId: this.inspection.deviceId,
+        deviceType: this.inspection.deviceType,
+        description: this.inspection.description,
+        temperature: this.inspection.temperature,
+        vibration: this.inspection.vibration,
+        current: this.inspection.current,
+        imageFeatures: this.inspection.imageFeatures,
+        riskLevel: diagnosis.riskLevel,
+        score: diagnosis.score,
+        evidence: diagnosis.evidence,
+        createdAt: new Date().toISOString()
+      };
     },
     downloadMarkdown(report) {
       this.saveMarkdownBlob(report.markdown, `${report.reportId}.md`);
@@ -2116,6 +2239,52 @@ li {
 
 .empty-state {
   grid-column: 1 / -1;
+}
+
+.empty-line {
+  color: #66766e;
+  padding: 12px 0;
+}
+
+.record-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.record-strip span {
+  border-radius: 99px;
+  background: #edf3ef;
+  color: #15241e;
+  padding: 7px 11px;
+  font-weight: 800;
+}
+
+.record-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid #e4ece7;
+  padding: 13px 0;
+}
+
+.record-row p {
+  margin: 4px 0 0;
+}
+
+.record-row small {
+  color: #66766e;
+  white-space: nowrap;
+}
+
+.pager-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .knowledge-grid,

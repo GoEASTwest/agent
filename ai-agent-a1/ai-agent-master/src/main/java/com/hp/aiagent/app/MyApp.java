@@ -1,8 +1,6 @@
 package com.hp.aiagent.app;
 
-import com.alibaba.cloud.ai.dashscope.api.DashScopeApi;
 import com.hp.aiagent.advisor.MyLoggerAdvisor;
-import com.hp.aiagent.advisor.ReReadingAdvisor;
 import com.hp.aiagent.chatmemory.FileBasedChatMemory;
 import com.hp.aiagent.maintenance.service.MaintenanceService;
 import com.hp.aiagent.rag.AppRagCustomAdvisorFactory;
@@ -13,9 +11,7 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
-import org.springframework.ai.chat.client.advisor.QuestionAnswerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
-import org.springframework.ai.chat.memory.InMemoryChatMemory;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.tool.ToolCallback;
