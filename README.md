@@ -19,6 +19,8 @@
 - 新增后端文件列表和下载接口，支持 `/api/ai/manus/files` 和 `/api/ai/manus/files/download`。
 - 新增 PDF 中文字体处理，解决中文生成 PDF 时乱码或字体缺失问题。
 - 优化本地启动脚本和环境变量模板，支持 `.env` 加载、Java 21 检查、前后端一键启动。
+- 新增可选 PostgreSQL 业务持久化，覆盖设备台账、故障案例、作业单、作业流转、诊断报告、知识审核和 AI 修正记录。
+- 新增 PgVector 向量知识库开关，可将本地 Markdown 检修资料切分入库，AI 问答优先走向量检索，异常时回退到本地知识检索。
 - 默认关闭 PostgreSQL + PgVector 和 MCP 自动连接，保留相关配置，方便先稳定演示，再按需要切换到持久化和向量检索部署。
 - 出于安全考虑，终端命令执行工具未开放给当前工具智能体，真实 API Key 不写入代码，生成文件保存在 `tmp/` 目录且不纳入 Git。
 
@@ -38,8 +40,11 @@
 - RAG 知识库
 - 报告中心
 - AI 知识问答
+- PostgreSQL 业务持久化
+- PgVector 可选向量检索
+- 视觉分析结果一键生成诊断和作业单
 
-默认演示模式不强制依赖 PostgreSQL 或 MCP，便于比赛现场稳定启动。数据库表结构和 PgVector 配置已保留，后续可切换到持久化部署。
+默认演示模式不强制依赖 PostgreSQL、PgVector 或 MCP，便于比赛现场稳定启动。若开启 `APP_JDBC_PERSISTENCE_ENABLED=true`，核心业务数据会写入 PostgreSQL；若再开启 `APP_PGVECTOR_ENABLED=true`，本地 Markdown 知识库会写入 PgVector 并用于真实向量检索。
 
 ## 启动主项目
 
@@ -77,9 +82,17 @@ cd "ai-agent-a1\ai-agent-master"
 http://127.0.0.1:5173/love-app
 ```
 
+本地交付前检查：
+
+```powershell
+cd "ai-agent-a1\ai-agent-master"
+.\scripts\check-local.ps1
+```
+
 ## 重要说明
 
 - 不要把真实 API Key 写入代码。
-- 当前主业务数据使用内存演示数据。
 - 默认已关闭 PostgreSQL + PgVector 和 MCP 自动连接，便于本地演示稳定启动。
-- 若启用 PostgreSQL + PgVector，需要补充真实数据库配置并打开 `app.vectorstore.pgvector.enabled`。
+- 本地建议先开启 PostgreSQL 业务持久化验证数据不丢，再决定是否开启 PgVector。
+- 若启用 PostgreSQL，请在 `.env` 中配置 `DB_URL`、`DB_USERNAME`、`DB_PASSWORD`、`APP_JDBC_PERSISTENCE_ENABLED=true`。
+- 若启用 PgVector，请确认数据库已安装 pgvector 扩展，并设置 `APP_PGVECTOR_ENABLED=true`。

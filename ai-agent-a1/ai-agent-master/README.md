@@ -21,7 +21,7 @@
 - 支持通过环境变量配置：
   - `DASHSCOPE_API_KEY`
   - `DASHSCOPE_CHAT_MODEL`
-  - `DASHSCOPE_BASE_URL`
+  - `DASHSCOPE_COMPATIBLE_BASE_URL`
 - 默认兼容模式 Base URL 为 `https://dashscope.aliyuncs.com/compatible-mode/v1`。
 
 ### 3. 工具智能体增强
@@ -220,7 +220,15 @@ $env:DASHSCOPE_API_KEY="your-dashscope-api-key"
 .\scripts\start-backend.ps1
 ```
 
-默认演示模式使用内存业务数据，并关闭 PostgreSQL + PgVector 与 MCP 自动连接。若需要启用数据库，请设置 `DB_URL`、`DB_USERNAME`、`DB_PASSWORD`，并打开 `app.vectorstore.pgvector.enabled`。
+默认演示模式使用内存业务数据，并关闭 PostgreSQL + PgVector 与 MCP 自动连接。若需要启用业务持久化，请设置 `DB_URL`、`DB_USERNAME`、`DB_PASSWORD`，并打开 `APP_JDBC_PERSISTENCE_ENABLED=true`。若需要启用真实向量检索，请确认 PostgreSQL 已安装 pgvector 扩展，并打开 `APP_PGVECTOR_ENABLED=true`。
+
+### 本地交付前检查
+
+```powershell
+.\scripts\check-local.ps1
+```
+
+该脚本会检查当前分支是否为 `Li`、Java 21、Node.js/npm、关键环境变量，并依次执行后端 `package` 和前端 `build`。建议每次功能收尾和提交前运行一次。
 
 ### 前端启动
 ```powershell
