@@ -34,11 +34,13 @@ public class VisionAnalysisService {
                 request.visualDescription()
         ));
         List<String> actions = buildActions(fallback.similarCases());
+        String riskLevel = estimateRiskLevel(request.visualDescription(), fallback.detectedFeatures());
         if (request.imageUrl() == null || request.imageUrl().isBlank()) {
             return new VisionAnalysisResult(
                     "local-rule",
                     "feature-keyword-matcher",
                     fallback.detectedFeatures(),
+                    riskLevel,
                     "未提供图片 URL，已根据现场图片描述抽取可见缺陷并匹配案例。",
                     fallback.similarCases(),
                     actions
@@ -74,6 +76,7 @@ public class VisionAnalysisService {
                     "dashscope",
                     "qwen-vl-plus",
                     fallback.detectedFeatures(),
+                    riskLevel,
                     content,
                     fallback.similarCases(),
                     actions
@@ -83,6 +86,7 @@ public class VisionAnalysisService {
                     "local-rule",
                     "feature-keyword-matcher",
                     fallback.detectedFeatures(),
+                    riskLevel,
                     "Qwen-VL 调用未完成，已切换到本地特征分析。原因：" + ex.getMessage(),
                     fallback.similarCases(),
                     actions
@@ -97,6 +101,24 @@ public class VisionAnalysisService {
         actions.add("检修前执行断电、泄压、挂牌上锁和个人防护");
         similarCases.stream().findFirst().ifPresent(faultCase -> actions.add("相似案例建议：" + faultCase.solution()));
         return actions;
+    }
+
+    private String estimateRiskLevel(String description, List<String> features) {
+        String text = ((description == null ? "" : description) + " " + String.join(" ", features)).toLowerCase();
+        if (containsAny(text, List.of("焦", "烧", "裂纹", "绝缘破损", "大量漏油", "严重", "停机"))) {
+            return "严重";
+        }
+        if (containsAny(text, List.of("漏油", "漏液", "变色", "金属屑", "磨损", "预警"))) {
+            return "预警";
+        }
+        if (features == null || features.isEmpty() || features.contains("待人工复核")) {
+            return "关注";
+        }
+        return "关注";
+    }
+
+    private boolean containsAny(String text, List<String> keywords) {
+        return keywords.stream().anyMatch(text::contains);
     }
 
     private String nullToEmpty(String value) {

@@ -291,6 +291,7 @@
           <div class="result-head">
             <span>{{ visionAnalysis.provider }}</span>
             <strong>{{ visionAnalysis.model }}</strong>
+            <em>{{ visionAnalysis.riskLevel }}</em>
           </div>
           <h3>视觉结论</h3>
           <p>{{ visionAnalysis.conclusion }}</p>
@@ -302,6 +303,10 @@
           <ul>
             <li v-for="action in visionAnalysis.recommendedActions" :key="action">{{ action }}</li>
           </ul>
+          <div class="report-actions">
+            <button class="ghost-button" type="button" @click="applyVisionToInspection">同步到诊断表单</button>
+            <button class="primary-button" type="button" @click="diagnoseFromVision">生成诊断与作业单</button>
+          </div>
         </article>
       </section>
 
@@ -1366,11 +1371,46 @@ export default {
           provider: 'local-rule',
           model: 'feature-keyword-matcher',
           detectedFeatures: this.localImageAnalysis().detectedFeatures,
+          riskLevel: this.estimateRiskFromFeatures(this.localImageAnalysis().detectedFeatures),
           conclusion: '视觉模型暂不可用，已使用本地图片特征规则兜底。',
           similarCases: this.localImageAnalysis().similarCases,
           recommendedActions: this.localImageAnalysis().inspectionTips
         };
       }
+    },
+    applyVisionToInspection() {
+      if (!this.visionAnalysis) return;
+      const profile = this.riskProfile(this.visionAnalysis.riskLevel);
+      this.inspection = {
+        ...this.inspection,
+        deviceType: this.imageForm.deviceType,
+        description: [
+          this.imageForm.visualDescription,
+          this.visionAnalysis.conclusion
+        ].filter(Boolean).join('\n'),
+        temperature: profile.temperature,
+        vibration: profile.vibration,
+        current: profile.current,
+        imageFeatures: [...new Set(this.visionAnalysis.detectedFeatures || [])]
+      };
+    },
+    async diagnoseFromVision() {
+      this.applyVisionToInspection();
+      await this.runDiagnosis();
+    },
+    riskProfile(riskLevel) {
+      return {
+        严重: { temperature: 92, vibration: 7.4, current: 132 },
+        预警: { temperature: 82, vibration: 5.8, current: 118 },
+        关注: { temperature: 72, vibration: 4.8, current: 96 },
+        正常: { temperature: 55, vibration: 2.4, current: 72 }
+      }[riskLevel] || { temperature: 72, vibration: 4.8, current: 96 };
+    },
+    estimateRiskFromFeatures(features) {
+      const text = (features || []).join('、');
+      if (/(焦痕|裂纹|绝缘破损)/.test(text)) return '严重';
+      if (/(漏液|油污|变色|金属屑|磨损)/.test(text)) return '预警';
+      return '关注';
     },
     localImageAnalysis() {
       const description = this.imageForm.visualDescription;
