@@ -25,7 +25,9 @@ public class LocalKnowledgeService {
     private static final List<String> DOMAIN_KEYWORDS = List.of(
             "风机", "泵", "电机", "轴承", "齿轮箱", "振动", "温度", "电流", "压力", "噪声",
             "润滑", "绝缘", "频谱", "过热", "磨损", "裂纹", "漏油", "锈蚀", "焦痕", "变色",
-            "汽蚀", "不对中", "断齿", "点蚀", "检修", "巡检", "作业单", "验收", "归档"
+            "汽蚀", "不对中", "断齿", "点蚀", "检修", "巡检", "作业单", "验收", "归档",
+            "摩托车", "发动机", "火花塞", "气门", "气缸", "活塞", "起动电机", "压缩压力",
+            "离合器", "机油泵", "水泵", "磁电机", "传动装置", "曲轴", "平衡轴", "冷却液"
     );
 
     private final ResourcePatternResolver resourcePatternResolver;

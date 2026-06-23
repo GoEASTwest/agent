@@ -3,6 +3,9 @@
 *.rar
 *.7z
 
+# Local reference manuals
+/摩托车发动机维修手册.pdf
+
 # Java / Maven
 target/
 *.class
