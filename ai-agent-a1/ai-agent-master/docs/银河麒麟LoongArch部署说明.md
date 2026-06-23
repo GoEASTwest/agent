@@ -160,12 +160,12 @@ target/ai-agent-0.0.1-SNAPSHOT.jar
 
 ## 8. 启动后端
 
+推荐在启用 PostgreSQL 业务持久化时使用脚本启动，避免 `.env` 未被 Java 进程正确读取：
+
 ```bash
 cd ai-agent-a1/ai-agent-master
-set -a
-source .env
-set +a
-java -jar target/ai-agent-0.0.1-SNAPSHOT.jar
+chmod +x start-backend-db.sh
+./start-backend-db.sh
 ```
 
 健康检查：

@@ -235,6 +235,14 @@ $env:DASHSCOPE_API_KEY="your-dashscope-api-key"
 
 默认演示模式使用内存业务数据，并关闭 PostgreSQL + PgVector 与 MCP 自动连接。若需要启用业务持久化，请设置 `DB_URL`、`DB_USERNAME`、`DB_PASSWORD`，并打开 `APP_JDBC_PERSISTENCE_ENABLED=true`。若需要启用真实向量检索，请确认 PostgreSQL 已安装 pgvector 扩展，并打开 `APP_PGVECTOR_ENABLED=true`。
 
+银河麒麟/LoongArch 虚拟机中如果 `.env` 没有被 Java 进程正确读取，建议直接使用数据库持久化启动脚本。脚本会强制开启 PostgreSQL 业务持久化、关闭 PgVector，并默认连接 `jdbc:postgresql://127.0.0.1:5432/ai_agent`：
+
+```bash
+cd ~/桌面/agent/ai-agent-a1/ai-agent-master
+chmod +x start-backend-db.sh
+./start-backend-db.sh
+```
+
 ### 本地交付前检查
 
 ```powershell
