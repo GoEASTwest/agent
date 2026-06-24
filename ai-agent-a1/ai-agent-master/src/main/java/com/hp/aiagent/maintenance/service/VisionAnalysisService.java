@@ -11,12 +11,15 @@ import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.model.Media;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.stereotype.Service;
+import org.springframework.util.MimeType;
 import org.springframework.util.MimeTypeUtils;
 
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 @Service
 public class VisionAnalysisService {
@@ -94,6 +97,81 @@ public class VisionAnalysisService {
         }
     }
 
+    public VisionAnalysisResult analyzeUploadedImage(String deviceType,
+                                                     String visualDescription,
+                                                     String question,
+                                                     String originalFileName,
+                                                     String contentType,
+                                                     byte[] content) {
+        ImageAnalysisResult fallback = maintenanceService.analyzeUploadedImage(deviceType, visualDescription, originalFileName, content);
+        List<String> actions = buildActions(fallback.similarCases());
+        actions.add("上传图片已保存到文件中心 upload 目录，可用于复盘和答辩演示");
+        String riskLevel = estimateRiskLevel(visualDescription, fallback.detectedFeatures());
+        if (content == null || content.length == 0) {
+            return new VisionAnalysisResult(
+                    "local-rule",
+                    "feature-keyword-matcher",
+                    fallback.detectedFeatures(),
+                    riskLevel,
+                    "上传图片为空，已根据文件名和现场描述进行本地特征分析。",
+                    fallback.similarCases(),
+                    actions
+            );
+        }
+
+        try {
+            String safeFileName = originalFileName == null || originalFileName.isBlank()
+                    ? "uploaded-maintenance-image"
+                    : originalFileName;
+            String promptText = """
+                    你是工业设备检修视觉诊断助手。请直接分析用户上传的设备故障图片，并结合现场描述输出：
+                    1. 图片中可见缺陷特征；
+                    2. 风险等级判断；
+                    3. 可能故障部位和原因；
+                    4. 现场检修建议；
+                    5. 是否建议生成检修作业单。
+                    设备类型：%s
+                    文件名：%s
+                    现场描述：%s
+                    补充问题：%s
+                    回答要面向检修现场，避免编造图片中不可见的参数。
+                    """.formatted(nullToEmpty(deviceType), safeFileName, nullToEmpty(visualDescription), nullToEmpty(question));
+            Media uploadedImage = Media.builder()
+                    .mimeType(resolveImageMimeType(contentType, safeFileName))
+                    .data(new ByteArrayResource(content, safeFileName))
+                    .name(safeFileName)
+                    .build();
+            String contentText = dashscopeChatModel.call(new Prompt(
+                    List.of(new UserMessage(promptText, List.of(uploadedImage))),
+                    DashScopeChatOptions.builder()
+                            .withModel("qwen-vl-plus")
+                            .withMultiModel(true)
+                            .withVlHighResolutionImages(true)
+                            .build()
+            )).getResult().getOutput().getText();
+
+            return new VisionAnalysisResult(
+                    "dashscope-upload",
+                    "qwen-vl-plus",
+                    fallback.detectedFeatures(),
+                    estimateRiskLevel(visualDescription + " " + contentText, fallback.detectedFeatures()),
+                    contentText,
+                    fallback.similarCases(),
+                    actions
+            );
+        } catch (Exception ex) {
+            return new VisionAnalysisResult(
+                    "local-rule",
+                    "feature-keyword-matcher",
+                    fallback.detectedFeatures(),
+                    riskLevel,
+                    "Qwen-VL 上传图片分析未完成，已切换到本地特征分析。原因：" + ex.getMessage(),
+                    fallback.similarCases(),
+                    actions
+            );
+        }
+    }
+
     private List<String> buildActions(List<FaultCase> similarCases) {
         List<String> actions = new ArrayList<>();
         actions.add("补拍设备铭牌、故障部位近景和周边环境远景");
@@ -119,6 +197,27 @@ public class VisionAnalysisService {
 
     private boolean containsAny(String text, List<String> keywords) {
         return keywords.stream().anyMatch(text::contains);
+    }
+
+    private MimeType resolveImageMimeType(String contentType, String fileName) {
+        if (contentType != null && !contentType.isBlank() && contentType.toLowerCase(Locale.ROOT).startsWith("image/")) {
+            try {
+                return MimeTypeUtils.parseMimeType(contentType);
+            } catch (Exception ignored) {
+                // Continue to filename inference below.
+            }
+        }
+        String lowerFileName = fileName == null ? "" : fileName.toLowerCase(Locale.ROOT);
+        if (lowerFileName.endsWith(".png")) {
+            return MimeTypeUtils.parseMimeType("image/png");
+        }
+        if (lowerFileName.endsWith(".webp")) {
+            return MimeTypeUtils.parseMimeType("image/webp");
+        }
+        if (lowerFileName.endsWith(".gif")) {
+            return MimeTypeUtils.parseMimeType("image/gif");
+        }
+        return MimeTypeUtils.IMAGE_JPEG;
     }
 
     private String nullToEmpty(String value) {

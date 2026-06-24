@@ -160,13 +160,16 @@ public class MaintenanceController {
     }
 
     @PostMapping("/vision/upload")
-    public ImageAnalysisResult analyzeUploadedVision(@RequestParam(defaultValue = "其他") String deviceType,
-                                                     @RequestParam(required = false) String visualDescription,
-                                                     @RequestParam("file") MultipartFile file) throws IOException {
-        return maintenanceService.analyzeUploadedImage(
+    public VisionAnalysisResult analyzeUploadedVision(@RequestParam(defaultValue = "其他") String deviceType,
+                                                      @RequestParam(required = false) String visualDescription,
+                                                      @RequestParam(required = false) String question,
+                                                      @RequestParam("file") MultipartFile file) throws IOException {
+        return visionAnalysisService.analyzeUploadedImage(
                 deviceType,
                 visualDescription,
+                question,
                 file.getOriginalFilename(),
+                file.getContentType(),
                 file.getBytes()
         );
     }

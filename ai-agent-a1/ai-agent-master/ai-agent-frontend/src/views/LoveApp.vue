@@ -271,7 +271,7 @@
           </label>
           <button class="primary-button" type="submit">分析图片特征</button>
           <button class="ghost-button" type="button" @click="runUploadedImageAnalysis" :disabled="!visionUploadFile">
-            上传图片并分析
+            上传图片并调用 Qwen-VL
           </button>
           <button class="ghost-button" type="button" @click="runVisionAnalysis">调用 Qwen 视觉分析</button>
         </form>
@@ -1434,6 +1434,7 @@ export default {
       formData.append('file', this.visionUploadFile);
       formData.append('deviceType', this.imageForm.deviceType);
       formData.append('visualDescription', this.imageForm.visualDescription);
+      formData.append('question', this.visionForm.question);
       try {
         const response = await fetch(apiUrl('/maintenance/vision/upload'), {
           method: 'POST',
@@ -1442,11 +1443,21 @@ export default {
         if (!response.ok) {
           throw new Error(await response.text());
         }
-        this.imageAnalysis = await response.json();
+        this.visionAnalysis = await response.json();
+        this.imageAnalysis = null;
         this.backendOnline = true;
       } catch (error) {
         this.backendOnline = false;
-        this.imageAnalysis = this.localImageAnalysis();
+        const localResult = this.localImageAnalysis();
+        this.visionAnalysis = {
+          provider: 'local-rule',
+          model: 'feature-keyword-matcher',
+          detectedFeatures: localResult.detectedFeatures,
+          riskLevel: this.estimateRiskFromFeatures(localResult.detectedFeatures),
+          conclusion: '上传图片视觉模型暂不可用，已使用本地图片特征规则兜底。',
+          similarCases: localResult.similarCases,
+          recommendedActions: localResult.inspectionTips
+        };
       }
     },
     async runVisionAnalysis() {
